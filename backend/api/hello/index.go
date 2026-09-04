@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/ralfazza/tomo/internal"
+	"github.com/ralfazza/tomo/pkg"
 )
 
 func Handler(w http.ResponseWriter, r *http.Request) {
-	internal.SetCORS(w)
+	pkg.SetCORS(w)
 	fmt.Fprint(w, "Hello world")
 }
