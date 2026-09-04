@@ -55,7 +55,7 @@ var (
 func init() {
 	GeminiModel = os.Getenv("GEMINI_MODEL")
 	if GeminiModel == "" {
-		GeminiModel = "gemini-2.0-flash"
+		GeminiModel = "gemini-3.6-flash"
 	}
 
 	apiKey := os.Getenv("GEMINI_API_KEY")
