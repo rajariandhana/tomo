@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -15,6 +16,10 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /api/hello", func(w http.ResponseWriter, r *http.Request) {
+		internal.SetCORS(w)
+		fmt.Fprint(w, "Hello world")
+	})
 	mux.HandleFunc("POST /api/start", func(w http.ResponseWriter, r *http.Request) {
 		internal.SetCORS(w)
 		internal.HandleStart(w, r)
