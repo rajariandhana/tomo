@@ -7,6 +7,7 @@ import { TypingIndicator } from '../components/TypingIndicator'
 import { TopicIcon } from '../components/TopicIcon'
 import { get_topic } from '../lib/topics'
 import { start_conversation, send_message } from '../lib/api'
+import type { History_item } from '../lib/api'
 import type { Message } from '../types'
 
 export function Conversation() {
@@ -15,7 +16,6 @@ export function Conversation() {
   const topic = get_topic(topic_key ?? '')
 
   const [messages, set_messages] = useState<Message[]>([])
-  const [conversation_id, set_conversation_id] = useState<string | null>(null)
   const [input, set_input] = useState('')
   const [is_ai_typing, set_is_ai_typing] = useState(true)
 
@@ -41,7 +41,6 @@ export function Conversation() {
       .then(data => {
         if (cancelled) return
         set_is_ai_typing(false)
-        set_conversation_id(data.conversation_id)
         set_messages([{
           id: crypto.randomUUID(),
           role: 'ai',
@@ -58,9 +57,16 @@ export function Conversation() {
     scroll_to_bottom()
   }, [messages, is_ai_typing])
 
+  const build_history = (current_messages: Message[]): History_item[] =>
+    current_messages.map(m => ({
+      role: m.role === 'ai' ? 'model' : 'user',
+      content: m.content_ja,
+    }))
+
   const send_mutation = useMutation({
-    mutationFn: (msg: string) => send_message(conversation_id!, { message: msg }),
-    onMutate: (msg: string) => {
+    mutationFn: ({ msg, history }: { msg: string; history: History_item[] }) =>
+      send_message({ topic_key: topic_key!, message: msg, history }),
+    onMutate: ({ msg }) => {
       set_messages(prev => [...prev, {
         id: crypto.randomUUID(),
         role: 'user',
@@ -86,12 +92,13 @@ export function Conversation() {
     onError: () => set_is_ai_typing(false),
   })
 
-  const is_blocked = is_ai_typing || !conversation_id
+  const is_blocked = is_ai_typing
 
   const handle_submit = () => {
     const trimmed = input.trim()
     if (!trimmed || is_blocked) return
-    send_mutation.mutate(trimmed)
+    const history = build_history(messages)
+    send_mutation.mutate({ msg: trimmed, history })
   }
 
   const handle_key_down = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

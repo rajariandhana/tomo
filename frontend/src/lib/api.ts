@@ -48,18 +48,24 @@ function random_delay(): Promise<void> {
 
 // ── Request / response shapes (match backend contract) ──────────────────────
 
+export type History_item = {
+  role: 'user' | 'model'
+  content: string
+}
+
 export type Start_conversation_request = {
   topic_key: string
 }
 
 export type Start_conversation_response = {
-  conversation_id: string
   first_message_ja: string
   first_message_en: string
 }
 
 export type Send_message_request = {
+  topic_key: string
   message: string
+  history: History_item[]
 }
 
 export type Send_message_response = {
@@ -69,7 +75,7 @@ export type Send_message_response = {
 
 // ── API functions ────────────────────────────────────────────────────────────
 
-const USE_MOCK = true
+const USE_MOCK = false
 
 export async function start_conversation(
   req: Start_conversation_request,
@@ -80,18 +86,13 @@ export async function start_conversation(
       ja: 'こんにちは！話しましょう！',
       en: "Hello! Let's talk!",
     }
-    return {
-      conversation_id: crypto.randomUUID(),
-      first_message_ja: msg.ja,
-      first_message_en: msg.en,
-    }
+    return { first_message_ja: msg.ja, first_message_en: msg.en }
   }
-  const { data } = await client.post<Start_conversation_response>('/api/conversations', req)
+  const { data } = await client.post<Start_conversation_response>('/api/start', req)
   return data
 }
 
 export async function send_message(
-  conversation_id: string,
   req: Send_message_request,
 ): Promise<Send_message_response> {
   if (USE_MOCK) {
@@ -99,9 +100,6 @@ export async function send_message(
     const pick = FOLLOW_UP_REPLIES[Math.floor(Math.random() * FOLLOW_UP_REPLIES.length)]
     return { reply_ja: pick.ja, reply_en: pick.en }
   }
-  const { data } = await client.post<Send_message_response>(
-    `/api/conversations/${conversation_id}/messages`,
-    req,
-  )
+  const { data } = await client.post<Send_message_response>('/api/send', req)
   return data
 }
