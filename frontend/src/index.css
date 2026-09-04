@@ -8,7 +8,9 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+html,
 body {
   background-color: #ffffff;
   overscroll-behavior: none;
+  overflow: hidden;
 }

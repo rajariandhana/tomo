@@ -102,8 +102,8 @@ export function Conversation() {
   }
 
   return (
-    <div className="flex justify-center bg-white min-h-dvh">
-      <div className="w-full max-w-md h-dvh flex flex-col bg-white">
+    <div className="fixed inset-x-0 top-0 h-dvh flex justify-center bg-white">
+      <div className="w-full max-w-md h-full flex flex-col bg-white">
 
         {/* Header */}
         <header
