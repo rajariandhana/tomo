@@ -26,9 +26,12 @@ export function MessageBubble({ message }: Props) {
         ].join(' ')}
       >
         {message.content_ja}
+        {message.streaming && (
+          <span className="inline-block w-[2px] h-[1em] bg-blue-400 ml-0.5 align-middle animate-pulse" />
+        )}
       </p>
 
-      {is_ai && message.content_en && (
+      {is_ai && !message.streaming && message.content_en && (
         <div className="mt-1 ml-1">
           <AnimatePresence>
             {show_en && (

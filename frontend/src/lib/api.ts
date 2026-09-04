@@ -103,3 +103,56 @@ export async function send_message(
   const { data } = await client.post<Send_message_response>('/api/send', req)
   return data
 }
+
+export async function send_message_stream(
+  req: Send_message_request,
+  on_chunk: (partial_ja: string) => void,
+  on_done: (ja: string, en: string) => void,
+): Promise<void> {
+  if (USE_MOCK) {
+    const pick = FOLLOW_UP_REPLIES[Math.floor(Math.random() * FOLLOW_UP_REPLIES.length)]
+    for (const char of pick.ja) {
+      await new Promise(r => setTimeout(r, 40))
+      on_chunk(char)
+    }
+    on_done(pick.ja, pick.en)
+    return
+  }
+
+  const base = import.meta.env.VITE_API_URL ?? 'http://localhost:8080'
+  const response = await fetch(`${base}/api/send/stream`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+  if (!response.ok || !response.body) throw new Error('stream failed')
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+
+    const lines = buffer.split('\n')
+    buffer = lines.pop() ?? ''
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try {
+        const event = JSON.parse(line.slice(6)) as Record<string, unknown>
+        if (typeof event.chunk === 'string') {
+          on_chunk(event.chunk)
+        } else if (event.done === true) {
+          on_done(event.ja as string, event.en as string)
+        } else if (event.error) {
+          throw new Error('stream error')
+        }
+      } catch {
+        // ignore malformed lines
+      }
+    }
+  }
+}

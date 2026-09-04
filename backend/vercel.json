@@ -9,6 +9,9 @@
     },
     "api/send/index.go": {
       "maxDuration": 30
+    },
+    "api/send/stream/index.go": {
+      "maxDuration": 30
     }
   }
 }

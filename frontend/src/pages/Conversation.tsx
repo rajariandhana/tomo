@@ -1,12 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import { useMutation } from '@tanstack/react-query'
 import { AnimatePresence } from 'framer-motion'
 import { MessageBubble } from '../components/MessageBubble'
 import { TypingIndicator } from '../components/TypingIndicator'
 import { TopicIcon } from '../components/TopicIcon'
 import { get_topic } from '../lib/topics'
-import { start_conversation, send_message } from '../lib/api'
+import { start_conversation, send_message_stream } from '../lib/api'
 import type { History_item } from '../lib/api'
 import type { Message } from '../types'
 
@@ -57,48 +56,68 @@ export function Conversation() {
     scroll_to_bottom()
   }, [messages, is_ai_typing])
 
+  const is_sending_ref = useRef(false)
+
   const build_history = (current_messages: Message[]): History_item[] =>
     current_messages.map(m => ({
       role: m.role === 'ai' ? 'model' : 'user',
       content: m.content_ja,
     }))
 
-  const send_mutation = useMutation({
-    mutationFn: ({ msg, history }: { msg: string; history: History_item[] }) =>
-      send_message({ topic_key: topic_key!, message: msg, history }),
-    onMutate: ({ msg }) => {
-      set_messages(prev => [...prev, {
-        id: crypto.randomUUID(),
-        role: 'user',
-        content_ja: msg,
-        created_at: Date.now(),
-      }])
-      set_is_ai_typing(true)
-      set_input('')
-      if (textarea_ref.current) {
-        textarea_ref.current.style.height = 'auto'
-      }
-    },
-    onSuccess: data => {
-      set_is_ai_typing(false)
-      set_messages(prev => [...prev, {
-        id: crypto.randomUUID(),
-        role: 'ai',
-        content_ja: data.reply_ja,
-        content_en: data.reply_en,
-        created_at: Date.now(),
-      }])
-    },
-    onError: () => set_is_ai_typing(false),
-  })
-
   const is_blocked = is_ai_typing
 
   const handle_submit = () => {
     const trimmed = input.trim()
-    if (!trimmed || is_blocked) return
+    if (!trimmed || is_blocked || is_sending_ref.current) return
+
     const history = build_history(messages)
-    send_mutation.mutate({ msg: trimmed, history })
+    const ai_id = crypto.randomUUID()
+    let first_chunk = true
+
+    set_messages(prev => [...prev, {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content_ja: trimmed,
+      created_at: Date.now(),
+    }])
+    set_is_ai_typing(true)
+    set_input('')
+    if (textarea_ref.current) textarea_ref.current.style.height = 'auto'
+
+    is_sending_ref.current = true
+
+    send_message_stream(
+      { topic_key: topic_key!, message: trimmed, history },
+      chunk => {
+        if (first_chunk) {
+          first_chunk = false
+          set_is_ai_typing(false)
+          set_messages(prev => [...prev, {
+            id: ai_id,
+            role: 'ai',
+            content_ja: chunk,
+            streaming: true,
+            created_at: Date.now(),
+          }])
+        } else {
+          set_messages(prev => prev.map(m =>
+            m.id === ai_id ? { ...m, content_ja: m.content_ja + chunk } : m
+          ))
+        }
+      },
+      (ja, en) => {
+        is_sending_ref.current = false
+        set_is_ai_typing(false)
+        set_messages(prev => prev.map(m =>
+          m.id === ai_id
+            ? { ...m, content_ja: ja, content_en: en, streaming: false }
+            : m
+        ))
+      },
+    ).catch(() => {
+      is_sending_ref.current = false
+      set_is_ai_typing(false)
+    })
   }
 
   const handle_key_down = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {

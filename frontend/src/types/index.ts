@@ -11,5 +11,6 @@ export type Message = {
   role: Message_role
   content_ja: string
   content_en?: string
+  streaming?: boolean
   created_at: number
 }

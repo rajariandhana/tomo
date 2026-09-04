@@ -74,7 +74,7 @@ func init() {
 	}
 }
 
-// ── System prompt ────────────────────────────────────────────────────────────
+// ── System prompts ───────────────────────────────────────────────────────────
 
 var topicLabels = map[string]string{
 	"self_introduction": "self-introduction",
@@ -102,6 +102,26 @@ Rules:
 - Do not include any text outside the JSON object`, label)
 }
 
+func BuildStreamPrompt(topicKey string) string {
+	label := topicLabels[topicKey]
+	if label == "" {
+		label = "everyday life"
+	}
+	return fmt.Sprintf(`You are Tomo, a friendly and encouraging Japanese language tutor. You help English speakers practice conversational Japanese by chatting about %s.
+
+Rules:
+- Write your reply in natural, conversational Japanese (1–3 sentences)
+- Then write exactly "---" on its own line
+- Then write the English translation of your Japanese reply
+- Be warm, patient, and encouraging
+- Do not include any other text or labels
+
+Example format:
+こんにちは！お元気ですか？
+---
+Hello! How are you?`, label)
+}
+
 // ── Gemini call ──────────────────────────────────────────────────────────────
 
 func CallGemini(ctx context.Context, topicKey, userText string, history []HistoryItem) (AIReply, error) {
@@ -121,11 +141,14 @@ func CallGemini(ctx context.Context, topicKey, userText string, history []Histor
 		Parts: []*genai.Part{{Text: userText}},
 	})
 
+	thinkingBudget := int32(0)
 	resp, err := GeminiClient.Models.GenerateContent(ctx, GeminiModel, contents, &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: BuildSystemPrompt(topicKey)}},
 		},
 		ResponseMIMEType: "application/json",
+		MaxOutputTokens:  200,
+		ThinkingConfig:   &genai.ThinkingConfig{ThinkingBudget: &thinkingBudget},
 	})
 	if err != nil {
 		return AIReply{}, fmt.Errorf("gemini: %w", err)
@@ -137,6 +160,110 @@ func CallGemini(ctx context.Context, topicKey, userText string, history []Histor
 		return AIReply{}, fmt.Errorf("gemini returned non-JSON: %s", raw)
 	}
 	return reply, nil
+}
+
+// ── Gemini streaming call ────────────────────────────────────────────────────
+
+func HandleSendStream(w http.ResponseWriter, r *http.Request) {
+	var req SendReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		http.Error(w, "message is empty", http.StatusBadRequest)
+		return
+	}
+	if GeminiClient == nil {
+		http.Error(w, "gemini not configured", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	contents := make([]*genai.Content, 0, len(req.History)+1)
+	for _, h := range req.History {
+		contents = append(contents, &genai.Content{
+			Role:  h.Role,
+			Parts: []*genai.Part{{Text: h.Content}},
+		})
+	}
+	contents = append(contents, &genai.Content{
+		Role:  "user",
+		Parts: []*genai.Part{{Text: req.Message}},
+	})
+
+	thinkingBudget := int32(0)
+	stream := GeminiClient.Models.GenerateContentStream(r.Context(), GeminiModel, contents, &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{{Text: BuildStreamPrompt(req.TopicKey)}},
+		},
+		MaxOutputTokens: 200,
+		ThinkingConfig:  &genai.ThinkingConfig{ThinkingBudget: &thinkingBudget},
+	})
+
+	writeSSE := func(v any) {
+		b, _ := json.Marshal(v)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+
+	const delimiter = "\n---\n"
+	const safeBuffer = len(delimiter) // 5: never send chars that might be mid-delimiter
+
+	var acc strings.Builder
+	delimFound := false
+	jaSent := 0
+
+	for resp, err := range stream {
+		if err != nil {
+			log.Printf("stream error: %v", err)
+			writeSSE(map[string]bool{"error": true})
+			return
+		}
+		acc.WriteString(resp.Text())
+		full := acc.String()
+
+		if delimFound {
+			continue
+		}
+
+		idx := strings.Index(full, delimiter)
+		if idx >= 0 {
+			delimFound = true
+			if idx > jaSent {
+				writeSSE(map[string]string{"chunk": full[jaSent:idx]})
+			}
+		} else {
+			safeEnd := len(full) - safeBuffer
+			if safeEnd > jaSent {
+				writeSSE(map[string]string{"chunk": full[jaSent:safeEnd]})
+				jaSent = safeEnd
+			}
+		}
+	}
+
+	full := acc.String()
+	parts := strings.SplitN(full, delimiter, 2)
+	ja := strings.TrimSpace(parts[0])
+	en := ""
+	if len(parts) == 2 {
+		en = strings.TrimSpace(parts[1])
+	}
+
+	// send any leftover ja if delimiter never arrived (model misbehaved)
+	if !delimFound && len(ja) > jaSent {
+		writeSSE(map[string]string{"chunk": ja[jaSent:]})
+	}
+
+	writeSSE(map[string]any{"done": true, "ja": ja, "en": en})
 }
 
 // ── HTTP helpers ─────────────────────────────────────────────────────────────

@@ -36,6 +36,14 @@ func main() {
 		pkg.SetCORS(w)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /api/send/stream", func(w http.ResponseWriter, r *http.Request) {
+		pkg.SetCORS(w)
+		pkg.HandleSendStream(w, r)
+	})
+	mux.HandleFunc("OPTIONS /api/send/stream", func(w http.ResponseWriter, r *http.Request) {
+		pkg.SetCORS(w)
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	port := os.Getenv("PORT")
 	if port == "" {
