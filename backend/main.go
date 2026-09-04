@@ -1,12 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 
 	"github.com/joho/godotenv"
-	"github.com/ralfazza/tomo/internal"
+	"github.com/ralfazza/tomo/pkg"
 )
 
 func main() {
@@ -15,20 +16,24 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	mux.HandleFunc("GET /api/hello", func(w http.ResponseWriter, r *http.Request) {
+		pkg.SetCORS(w)
+		fmt.Fprint(w, "Hello world")
+	})
 	mux.HandleFunc("POST /api/start", func(w http.ResponseWriter, r *http.Request) {
-		internal.SetCORS(w)
-		internal.HandleStart(w, r)
+		pkg.SetCORS(w)
+		pkg.HandleStart(w, r)
 	})
 	mux.HandleFunc("POST /api/send", func(w http.ResponseWriter, r *http.Request) {
-		internal.SetCORS(w)
-		internal.HandleSend(w, r)
+		pkg.SetCORS(w)
+		pkg.HandleSend(w, r)
 	})
 	mux.HandleFunc("OPTIONS /api/start", func(w http.ResponseWriter, r *http.Request) {
-		internal.SetCORS(w)
+		pkg.SetCORS(w)
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("OPTIONS /api/send", func(w http.ResponseWriter, r *http.Request) {
-		internal.SetCORS(w)
+		pkg.SetCORS(w)
 		w.WriteHeader(http.StatusNoContent)
 	})
 

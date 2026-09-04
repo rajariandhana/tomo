@@ -1,6 +1,13 @@
 {
+  "framework": null,
   "functions": {
-    "api/**/*.go": {
+    "api/hello/index.go": {
+      "maxDuration": 30
+    },
+    "api/start/index.go": {
+      "maxDuration": 30
+    },
+    "api/send/index.go": {
       "maxDuration": 30
     }
   }

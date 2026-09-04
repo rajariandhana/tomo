@@ -3,11 +3,11 @@ package handler
 import (
 	"net/http"
 
-	"github.com/ralfazza/tomo/internal"
+	"github.com/ralfazza/tomo/pkg"
 )
 
 func Handler(w http.ResponseWriter, r *http.Request) {
-	internal.SetCORS(w)
+	pkg.SetCORS(w)
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -16,5 +16,5 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	internal.HandleStart(w, r)
+	pkg.HandleStart(w, r)
 }
