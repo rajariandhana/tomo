@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 
 	"google.golang.org/genai"
 )
@@ -50,28 +51,34 @@ type AIReply struct {
 var (
 	GeminiClient *genai.Client
 	GeminiModel  string
+	geminiOnce   sync.Once
 )
 
-func init() {
-	GeminiModel = os.Getenv("GEMINI_MODEL")
-	if GeminiModel == "" {
-		GeminiModel = "gemini-3.6-flash"
-	}
+// InitGemini initializes the Gemini client from environment variables.
+// Safe to call multiple times; executes only once. Call it from main()
+// after loading .env so env vars are visible — package init() runs too early.
+func InitGemini() {
+	geminiOnce.Do(func() {
+		GeminiModel = os.Getenv("GEMINI_MODEL")
+		if GeminiModel == "" {
+			GeminiModel = "gemini-3.6-flash"
+		}
 
-	apiKey := os.Getenv("GEMINI_API_KEY")
-	if apiKey == "" {
-		log.Println("warning: GEMINI_API_KEY is not set")
-		return
-	}
+		apiKey := os.Getenv("GEMINI_API_KEY")
+		if apiKey == "" {
+			log.Println("warning: GEMINI_API_KEY is not set")
+			return
+		}
 
-	var err error
-	GeminiClient, err = genai.NewClient(context.Background(), &genai.ClientConfig{
-		APIKey:  apiKey,
-		Backend: genai.BackendGeminiAPI,
+		var err error
+		GeminiClient, err = genai.NewClient(context.Background(), &genai.ClientConfig{
+			APIKey:  apiKey,
+			Backend: genai.BackendGeminiAPI,
+		})
+		if err != nil {
+			log.Printf("gemini client init: %v", err)
+		}
 	})
-	if err != nil {
-		log.Printf("gemini client init: %v", err)
-	}
 }
 
 // ── System prompts ───────────────────────────────────────────────────────────
@@ -165,6 +172,7 @@ func CallGemini(ctx context.Context, topicKey, userText string, history []Histor
 // ── Gemini streaming call ────────────────────────────────────────────────────
 
 func HandleSendStream(w http.ResponseWriter, r *http.Request) {
+	InitGemini()
 	var req SendReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -284,6 +292,7 @@ func WriteJSON(w http.ResponseWriter, v any) {
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 func HandleStart(w http.ResponseWriter, r *http.Request) {
+	InitGemini()
 	var req StartReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
@@ -301,6 +310,7 @@ func HandleStart(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleSend(w http.ResponseWriter, r *http.Request) {
+	InitGemini()
 	var req SendReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad request", http.StatusBadRequest)
