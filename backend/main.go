@@ -13,6 +13,7 @@ import (
 func main() {
 	_ = godotenv.Load()
 	_ = godotenv.Load("../.env")
+	pkg.InitGemini()
 
 	mux := http.NewServeMux()
 
