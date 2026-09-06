@@ -366,16 +366,19 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
+
+	// Vercel's Go Lambda runtime doesn't implement http.Flusher — the response
+	// body is buffered and delivered whole once the handler returns. Flushing
+	// is best-effort so real streaming still works locally (net/http server)
+	// without hard-failing the request where it's unavailable.
+	flusher, _ := w.(http.Flusher)
 
 	writeSSE := func(v any) {
 		b, _ := json.Marshal(v)
 		fmt.Fprintf(w, "data: %s\n\n", b)
-		flusher.Flush()
+		if flusher != nil {
+			flusher.Flush()
+		}
 	}
 
 	const delimiter = "\n---\n"
