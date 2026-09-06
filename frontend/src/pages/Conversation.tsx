@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router'
-import { motion, AnimatePresence } from 'framer-motion'
+import { AnimatePresence } from 'framer-motion'
 import { MessageBubble } from '../components/MessageBubble'
 import { TypingIndicator } from '../components/TypingIndicator'
 import { TopicIcon } from '../components/TopicIcon'
@@ -37,11 +37,18 @@ export function Conversation() {
   const [messages, set_messages] = useState<Message[]>([])
   const [input, set_input] = useState('')
   const [is_ai_typing, set_is_ai_typing] = useState(true)
-  const [user_turn_count, set_user_turn_count] = useState(0)
-  const [conversation_ended, set_conversation_ended] = useState(false)
 
   const scroll_ref = useRef<HTMLDivElement>(null)
   const textarea_ref = useRef<HTMLTextAreaElement>(null)
+  const messages_ref = useRef<Message[]>([])
+
+  const apply_messages = (updater: (prev: Message[]) => Message[]) => {
+    const next = updater(messages_ref.current)
+    messages_ref.current = next
+    set_messages(next)
+  }
+
+  const user_turns = messages.filter(m => m.role === 'user').length
 
   const scroll_to_bottom = () => {
     const el = scroll_ref.current
@@ -62,7 +69,7 @@ export function Conversation() {
       .then(data => {
         if (cancelled) return
         set_is_ai_typing(false)
-        set_messages([{
+        apply_messages(() => [{
           id: crypto.randomUUID(),
           role: 'ai',
           content_ja: data.first_message_ja,
@@ -74,7 +81,7 @@ export function Conversation() {
         if (cancelled) return
         set_is_ai_typing(false)
         if (err instanceof Service_unavailable_error) {
-          set_messages([make_unavailable_message()])
+          apply_messages(() => [make_unavailable_message()])
         }
       })
     return () => { cancelled = true }
@@ -92,7 +99,14 @@ export function Conversation() {
       content: m.content_ja,
     }))
 
-  const is_blocked = is_ai_typing || conversation_ended
+  const is_blocked = is_ai_typing
+
+  const go_to_ended_page = () => {
+    navigate(`/conversation/ended`, {
+      replace: true,
+      state: { messages: messages_ref.current },
+    })
+  }
 
   const handle_submit = () => {
     const trimmed = input.trim()
@@ -102,7 +116,7 @@ export function Conversation() {
     const ai_id = crypto.randomUUID()
     let first_chunk = true
 
-    set_messages(prev => [...prev, {
+    apply_messages(prev => [...prev, {
       id: crypto.randomUUID(),
       role: 'user',
       content_ja: trimmed,
@@ -120,7 +134,7 @@ export function Conversation() {
         if (first_chunk) {
           first_chunk = false
           set_is_ai_typing(false)
-          set_messages(prev => [...prev, {
+          apply_messages(prev => [...prev, {
             id: ai_id,
             role: 'ai',
             content_ja: chunk,
@@ -128,7 +142,7 @@ export function Conversation() {
             created_at: Date.now(),
           }])
         } else {
-          set_messages(prev => prev.map(m =>
+          apply_messages(prev => prev.map(m =>
             m.id === ai_id ? { ...m, content_ja: m.content_ja + chunk } : m
           ))
         }
@@ -136,16 +150,13 @@ export function Conversation() {
       (ja, en) => {
         is_sending_ref.current = false
         set_is_ai_typing(false)
-        set_messages(prev => prev.map(m =>
+        apply_messages(prev => prev.map(m =>
           m.id === ai_id
             ? { ...m, content_ja: ja, content_en: en, streaming: false }
             : m
         ))
-        set_user_turn_count(prev => {
-          const next = prev + 1
-          if (next >= MAX_USER_TURNS) set_conversation_ended(true)
-          return next
-        })
+        const turns = messages_ref.current.filter(m => m.role === 'user').length
+        if (turns >= MAX_USER_TURNS) go_to_ended_page()
       },
     ).catch((err: unknown) => {
       is_sending_ref.current = false
@@ -153,10 +164,10 @@ export function Conversation() {
       if (err instanceof Service_unavailable_error) {
         // Drop any partial streaming bubble — its content may be incomplete —
         // and show a clear unavailable message instead.
-        set_messages(prev => [...prev.filter(m => m.id !== ai_id), make_unavailable_message()])
+        apply_messages(prev => [...prev.filter(m => m.id !== ai_id), make_unavailable_message()])
       } else if (err instanceof Conversation_limit_error) {
-        set_messages(prev => prev.filter(m => m.id !== ai_id))
-        set_conversation_ended(true)
+        apply_messages(prev => prev.filter(m => m.id !== ai_id))
+        go_to_ended_page()
       }
     })
   }
@@ -195,7 +206,7 @@ export function Conversation() {
             <span className="text-xs text-gray-400">{topic?.ja}</span>
           </div>
           <span className="text-[11px] font-semibold text-gray-300 tabular-nums shrink-0">
-            {Math.min(user_turn_count, MAX_USER_TURNS)}/{MAX_USER_TURNS}
+            {Math.min(user_turns, MAX_USER_TURNS)}/{MAX_USER_TURNS}
           </span>
         </header>
 
@@ -226,7 +237,7 @@ export function Conversation() {
               adjust_textarea()
             }}
             onKeyDown={handle_key_down}
-            placeholder={conversation_ended ? 'Conversation ended' : 'Type a message...'}
+            placeholder="Type a message..."
             rows={1}
             disabled={is_blocked}
             className="flex-1 resize-none rounded-xl border border-gray-200 px-4 py-3 text-[15px] text-gray-800 placeholder:text-gray-300 focus:outline-none focus:border-blue-300 transition-colors disabled:opacity-40 leading-relaxed"
@@ -244,39 +255,6 @@ export function Conversation() {
             </svg>
           </button>
         </div>
-
-        {/* Conversation-ended modal */}
-        <AnimatePresence>
-          {conversation_ended && (
-            <motion.div
-              className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-6"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-            >
-              <motion.div
-                className="w-full max-w-xs bg-white rounded-3xl p-6 text-center shadow-xl"
-                initial={{ opacity: 0, scale: 0.92, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.92, y: 10 }}
-                transition={{ duration: 0.2, ease: 'easeOut' }}
-              >
-                <div className="text-4xl mb-3">🎉</div>
-                <h2 className="text-lg font-bold text-gray-800 mb-2">Conversation ended</h2>
-                <p className="text-sm text-gray-500 leading-relaxed mb-6">
-                  How was it? Upgrade to Pro if you want to talk more with Tomo.
-                </p>
-                <button
-                  onClick={() => navigate('/')}
-                  className="w-full py-3 rounded-xl bg-blue-600 text-white font-semibold text-sm active:scale-95 transition-transform"
-                >
-                  Back to Topics
-                </button>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
       </div>
     </div>

@@ -2,6 +2,8 @@
 
 @theme {
   --font-family-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-tomo-blue: #2563EB;
+  --color-tomo-orange: #F97316;
 }
 
 * {
