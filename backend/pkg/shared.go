@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"google.golang.org/genai"
 )
@@ -46,38 +47,85 @@ type AIReply struct {
 	EN string `json:"en"`
 }
 
-// ── Gemini client (initialized once per cold start) ──────────────────────────
+// ── Gemini rotator ───────────────────────────────────────────────────────────
+
+// Rotation order: cycle through all models of project 1, then project 2, etc.
+// Each request advances the slot by one, wrapping around after all slots are exhausted.
+
+var geminiModels = []string{
+	"gemini-3.8-flash",
+	"gemini-3.7-flash",
+	"gemini-3.6-flash",
+	"gemini-3.5-flash",
+	"gemini-3.5-flash-lite",
+	"gemini-3.1-flash-lite",
+}
+
+var geminiProjectEnvKeys = []string{
+	"BOT_1_TOMO",
+	"BOT_2_TOMO",
+	"BOT_3_TOMO",
+	"BOT_4_TOMO",
+}
+
+// nonThinkingModels don't accept ThinkingConfig — sending it returns INVALID_ARGUMENT.
+var nonThinkingModels = map[string]bool{
+	"gemini-3.6-flash":      true,
+	"gemini-3.5-flash-lite": true,
+}
+
+type clientSlot struct {
+	client        *genai.Client
+	model         string
+	supportsThink bool
+}
+
+type rotator struct {
+	slots   []clientSlot
+	counter atomic.Uint64
+}
+
+// next returns the client, model, and whether ThinkingConfig is supported for this slot.
+func (r *rotator) next() (*genai.Client, string, bool) {
+	n := r.counter.Add(1) - 1
+	s := r.slots[n%uint64(len(r.slots))]
+	return s.client, s.model, s.supportsThink
+}
 
 var (
-	GeminiClient *genai.Client
-	GeminiModel  string
-	geminiOnce   sync.Once
+	GeminiRotator *rotator
+	rotatorOnce   sync.Once
 )
 
-// InitGemini initializes the Gemini client from environment variables.
-// Safe to call multiple times; executes only once. Call it from main()
-// after loading .env so env vars are visible — package init() runs too early.
+// InitGemini initializes the Gemini rotator from BOT_1_TOMO..BOT_4_TOMO env vars.
+// Safe to call multiple times; executes only once. Call from main() after loading .env.
 func InitGemini() {
-	geminiOnce.Do(func() {
-		GeminiModel = os.Getenv("GEMINI_MODEL")
-		if GeminiModel == "" {
-			GeminiModel = "gemini-3.6-flash"
+	rotatorOnce.Do(func() {
+		r := &rotator{}
+		for _, key := range geminiProjectEnvKeys {
+			apiKey := os.Getenv(key)
+			if apiKey == "" {
+				log.Printf("warning: %s is not set, skipping", key)
+				continue
+			}
+			client, err := genai.NewClient(context.Background(), &genai.ClientConfig{
+				APIKey:  apiKey,
+				Backend: genai.BackendGeminiAPI,
+			})
+			if err != nil {
+				log.Printf("gemini client init (%s): %v", key, err)
+				continue
+			}
+			for _, model := range geminiModels {
+				r.slots = append(r.slots, clientSlot{client, model, !nonThinkingModels[model]})
+			}
 		}
-
-		apiKey := os.Getenv("GEMINI_API_KEY")
-		if apiKey == "" {
-			log.Println("warning: GEMINI_API_KEY is not set")
+		if len(r.slots) == 0 {
+			log.Println("warning: no Gemini clients initialized")
 			return
 		}
-
-		var err error
-		GeminiClient, err = genai.NewClient(context.Background(), &genai.ClientConfig{
-			APIKey:  apiKey,
-			Backend: genai.BackendGeminiAPI,
-		})
-		if err != nil {
-			log.Printf("gemini client init: %v", err)
-		}
+		GeminiRotator = r
+		log.Printf("gemini rotator ready: %d slot(s) across %d project(s)", len(r.slots), len(r.slots)/len(geminiModels))
 	})
 }
 
@@ -132,9 +180,10 @@ Hello! How are you?`, label)
 // ── Gemini call ──────────────────────────────────────────────────────────────
 
 func CallGemini(ctx context.Context, topicKey, userText string, history []HistoryItem) (AIReply, error) {
-	if GeminiClient == nil {
+	if GeminiRotator == nil {
 		return AIReply{}, fmt.Errorf("gemini client not initialized")
 	}
+	client, model, supportsThink := GeminiRotator.next()
 
 	contents := make([]*genai.Content, 0, len(history)+1)
 	for _, h := range history {
@@ -148,17 +197,23 @@ func CallGemini(ctx context.Context, topicKey, userText string, history []Histor
 		Parts: []*genai.Part{{Text: userText}},
 	})
 
-	thinkingBudget := int32(0)
-	resp, err := GeminiClient.Models.GenerateContent(ctx, GeminiModel, contents, &genai.GenerateContentConfig{
+	cfg := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: BuildSystemPrompt(topicKey)}},
 		},
 		ResponseMIMEType: "application/json",
-		MaxOutputTokens:  200,
-		ThinkingConfig:   &genai.ThinkingConfig{ThinkingBudget: &thinkingBudget},
-	})
+		MaxOutputTokens:  512,
+	}
+	if supportsThink {
+		budget := int32(0)
+		cfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingBudget: &budget}
+	}
+	resp, err := client.Models.GenerateContent(ctx, model, contents, cfg)
 	if err != nil {
 		return AIReply{}, fmt.Errorf("gemini: %w", err)
+	}
+	if u := resp.UsageMetadata; u != nil {
+		log.Printf("[gemini] model=%s in=%d out=%d tokens", model, u.PromptTokenCount, u.CandidatesTokenCount)
 	}
 
 	raw := strings.TrimSpace(resp.Text())
@@ -182,10 +237,11 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "message is empty", http.StatusBadRequest)
 		return
 	}
-	if GeminiClient == nil {
+	if GeminiRotator == nil {
 		http.Error(w, "gemini not configured", http.StatusInternalServerError)
 		return
 	}
+	client, model, supportsThink := GeminiRotator.next()
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -208,14 +264,17 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 		Parts: []*genai.Part{{Text: req.Message}},
 	})
 
-	thinkingBudget := int32(0)
-	stream := GeminiClient.Models.GenerateContentStream(r.Context(), GeminiModel, contents, &genai.GenerateContentConfig{
+	streamCfg := &genai.GenerateContentConfig{
 		SystemInstruction: &genai.Content{
 			Parts: []*genai.Part{{Text: BuildStreamPrompt(req.TopicKey)}},
 		},
-		MaxOutputTokens: 200,
-		ThinkingConfig:  &genai.ThinkingConfig{ThinkingBudget: &thinkingBudget},
-	})
+		MaxOutputTokens: 512,
+	}
+	if supportsThink {
+		budget := int32(0)
+		streamCfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingBudget: &budget}
+	}
+	stream := client.Models.GenerateContentStream(r.Context(), model, contents, streamCfg)
 
 	writeSSE := func(v any) {
 		b, _ := json.Marshal(v)
@@ -229,12 +288,16 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 	var acc strings.Builder
 	delimFound := false
 	jaSent := 0
+	var lastUsage *genai.GenerateContentResponseUsageMetadata
 
 	for resp, err := range stream {
 		if err != nil {
 			log.Printf("stream error: %v", err)
 			writeSSE(map[string]bool{"error": true})
 			return
+		}
+		if resp.UsageMetadata != nil {
+			lastUsage = resp.UsageMetadata
 		}
 		acc.WriteString(resp.Text())
 		full := acc.String()
@@ -269,6 +332,9 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 	// send any leftover ja if delimiter never arrived (model misbehaved)
 	if !delimFound && len(ja) > jaSent {
 		writeSSE(map[string]string{"chunk": ja[jaSent:]})
+	}
+	if lastUsage != nil {
+		log.Printf("[gemini] model=%s in=%d out=%d tokens (stream)", model, lastUsage.PromptTokenCount, lastUsage.CandidatesTokenCount)
 	}
 
 	writeSSE(map[string]any{"done": true, "ja": ja, "en": en})
