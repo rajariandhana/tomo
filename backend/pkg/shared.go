@@ -3,7 +3,9 @@ package pkg
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"iter"
 	"log"
 	"net/http"
 	"os"
@@ -90,6 +92,28 @@ func (r *rotator) next() (*genai.Client, string, bool) {
 	n := r.counter.Add(1) - 1
 	s := r.slots[n%uint64(len(r.slots))]
 	return s.client, s.model, s.supportsThink
+}
+
+// slotCount returns how many slots are available to retry across.
+func (r *rotator) slotCount() int {
+	return len(r.slots)
+}
+
+// errAllModelsUnavailable is returned when every model in the rotation failed
+// with a retriable error (e.g. all under high demand).
+var errAllModelsUnavailable = errors.New("all gemini models unavailable")
+
+// isRetriable reports whether a Gemini API error is transient and worth
+// retrying against a different model/project (high demand, rate limits, or
+// other server-side unavailability). Non-retriable errors (bad request,
+// malformed output) are surfaced immediately instead of burning through slots.
+func isRetriable(err error) bool {
+	s := err.Error()
+	return strings.Contains(s, "503") ||
+		strings.Contains(s, "429") ||
+		strings.Contains(s, "UNAVAILABLE") ||
+		strings.Contains(s, "RESOURCE_EXHAUSTED") ||
+		strings.Contains(s, "INTERNAL")
 }
 
 var (
@@ -179,12 +203,7 @@ Hello! How are you?`, label)
 
 // ── Gemini call ──────────────────────────────────────────────────────────────
 
-func CallGemini(ctx context.Context, topicKey, userText string, history []HistoryItem) (AIReply, error) {
-	if GeminiRotator == nil {
-		return AIReply{}, fmt.Errorf("gemini client not initialized")
-	}
-	client, model, supportsThink := GeminiRotator.next()
-
+func callGeminiOnce(ctx context.Context, client *genai.Client, model string, supportsThink bool, topicKey, userText string, history []HistoryItem) (AIReply, error) {
 	contents := make([]*genai.Content, 0, len(history)+1)
 	for _, h := range history {
 		contents = append(contents, &genai.Content{
@@ -224,7 +243,87 @@ func CallGemini(ctx context.Context, topicKey, userText string, history []Histor
 	return reply, nil
 }
 
+// CallGemini tries the next model in rotation; on a retriable failure (high
+// demand, rate limit) it advances to the next slot and tries again, up to
+// once per available slot, before giving up with errAllModelsUnavailable.
+func CallGemini(ctx context.Context, topicKey, userText string, history []HistoryItem) (AIReply, error) {
+	if GeminiRotator == nil {
+		return AIReply{}, fmt.Errorf("gemini client not initialized")
+	}
+
+	maxAttempts := GeminiRotator.slotCount()
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		client, model, supportsThink := GeminiRotator.next()
+		reply, err := callGeminiOnce(ctx, client, model, supportsThink, topicKey, userText, history)
+		if err == nil {
+			return reply, nil
+		}
+		if !isRetriable(err) {
+			return AIReply{}, err
+		}
+		log.Printf("[gemini] attempt %d/%d (model=%s) failed: %v — trying next model", attempt, maxAttempts, model, err)
+		lastErr = err
+	}
+	return AIReply{}, fmt.Errorf("%w: %v", errAllModelsUnavailable, lastErr)
+}
+
 // ── Gemini streaming call ────────────────────────────────────────────────────
+
+// pulledStream holds a manually-driven (pull-based) Gemini stream so its
+// first chunk can be inspected — and retried against another model on
+// failure — before any SSE bytes are written to the client.
+type pulledStream struct {
+	model string
+	next  func() (*genai.GenerateContentResponse, error, bool)
+	stop  func()
+	first *genai.GenerateContentResponse
+}
+
+// startGeminiStream tries the next model in rotation for a streaming call;
+// on a retriable failure it advances to the next slot, up to once per
+// available slot. Returns nil, errAllModelsUnavailable if every model failed,
+// or the original non-retriable error otherwise.
+func startGeminiStream(ctx context.Context, req SendReq, contents []*genai.Content) (*pulledStream, error) {
+	maxAttempts := GeminiRotator.slotCount()
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		client, model, supportsThink := GeminiRotator.next()
+
+		streamCfg := &genai.GenerateContentConfig{
+			SystemInstruction: &genai.Content{
+				Parts: []*genai.Part{{Text: BuildStreamPrompt(req.TopicKey)}},
+			},
+			MaxOutputTokens: 512,
+		}
+		if supportsThink {
+			budget := int32(0)
+			streamCfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingBudget: &budget}
+		}
+
+		stream := client.Models.GenerateContentStream(ctx, model, contents, streamCfg)
+		next, stop := iter.Pull2(stream)
+		first, err, ok := next()
+
+		if err != nil {
+			stop()
+			if isRetriable(err) {
+				log.Printf("[gemini] stream attempt %d/%d (model=%s) failed: %v — trying next model", attempt, maxAttempts, model, err)
+				lastErr = err
+				continue
+			}
+			return nil, err
+		}
+		if !ok {
+			stop()
+			log.Printf("[gemini] stream attempt %d/%d (model=%s) returned no content — trying next model", attempt, maxAttempts, model)
+			lastErr = fmt.Errorf("empty stream")
+			continue
+		}
+		return &pulledStream{model: model, next: next, stop: stop, first: first}, nil
+	}
+	return nil, fmt.Errorf("%w: %v", errAllModelsUnavailable, lastErr)
+}
 
 func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 	InitGemini()
@@ -241,16 +340,6 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "gemini not configured", http.StatusInternalServerError)
 		return
 	}
-	client, model, supportsThink := GeminiRotator.next()
-
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("X-Accel-Buffering", "no")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
-		return
-	}
 
 	contents := make([]*genai.Content, 0, len(req.History)+1)
 	for _, h := range req.History {
@@ -264,17 +353,24 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 		Parts: []*genai.Part{{Text: req.Message}},
 	})
 
-	streamCfg := &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: BuildStreamPrompt(req.TopicKey)}},
-		},
-		MaxOutputTokens: 512,
+	// Find a working model before committing to SSE headers, so a failure here
+	// can still return a normal HTTP status instead of an SSE error event.
+	ps, err := startGeminiStream(r.Context(), req, contents)
+	if err != nil {
+		log.Printf("stream error: %v", err)
+		writeGeminiError(w, err)
+		return
 	}
-	if supportsThink {
-		budget := int32(0)
-		streamCfg.ThinkingConfig = &genai.ThinkingConfig{ThinkingBudget: &budget}
+	defer ps.stop()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
 	}
-	stream := client.Models.GenerateContentStream(r.Context(), model, contents, streamCfg)
 
 	writeSSE := func(v any) {
 		b, _ := json.Marshal(v)
@@ -290,12 +386,7 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 	jaSent := 0
 	var lastUsage *genai.GenerateContentResponseUsageMetadata
 
-	for resp, err := range stream {
-		if err != nil {
-			log.Printf("stream error: %v", err)
-			writeSSE(map[string]bool{"error": true})
-			return
-		}
+	handleChunk := func(resp *genai.GenerateContentResponse) {
 		if resp.UsageMetadata != nil {
 			lastUsage = resp.UsageMetadata
 		}
@@ -303,7 +394,7 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 		full := acc.String()
 
 		if delimFound {
-			continue
+			return
 		}
 
 		idx := strings.Index(full, delimiter)
@@ -321,6 +412,24 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	handleChunk(ps.first)
+
+	for {
+		resp, err, ok := ps.next()
+		if !ok {
+			break
+		}
+		if err != nil {
+			// Mid-stream failures can't be retried against another model —
+			// the client has already received partial content — so signal
+			// the frontend to show an unavailable message.
+			log.Printf("stream error mid-flight (model=%s): %v", ps.model, err)
+			writeSSE(map[string]bool{"error": true, "unavailable": true})
+			return
+		}
+		handleChunk(resp)
+	}
+
 	full := acc.String()
 	parts := strings.SplitN(full, delimiter, 2)
 	ja := strings.TrimSpace(parts[0])
@@ -334,7 +443,7 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 		writeSSE(map[string]string{"chunk": ja[jaSent:]})
 	}
 	if lastUsage != nil {
-		log.Printf("[gemini] model=%s in=%d out=%d tokens (stream)", model, lastUsage.PromptTokenCount, lastUsage.CandidatesTokenCount)
+		log.Printf("[gemini] model=%s in=%d out=%d tokens (stream)", ps.model, lastUsage.PromptTokenCount, lastUsage.CandidatesTokenCount)
 	}
 
 	writeSSE(map[string]any{"done": true, "ja": ja, "en": en})
@@ -355,6 +464,18 @@ func WriteJSON(w http.ResponseWriter, v any) {
 	}
 }
 
+// writeGeminiError maps a CallGemini failure to an HTTP response: 503 with a
+// structured body when every model in rotation was unavailable (so the
+// frontend can show a friendly message), 502 for anything else.
+func writeGeminiError(w http.ResponseWriter, err error) {
+	if errors.Is(err, errAllModelsUnavailable) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		WriteJSON(w, map[string]string{"error": "service_unavailable"})
+		return
+	}
+	http.Error(w, "upstream error", http.StatusBadGateway)
+}
+
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
 func HandleStart(w http.ResponseWriter, r *http.Request) {
@@ -368,7 +489,7 @@ func HandleStart(w http.ResponseWriter, r *http.Request) {
 	reply, err := CallGemini(r.Context(), req.TopicKey, "[START]", nil)
 	if err != nil {
 		log.Printf("start error: %v", err)
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		writeGeminiError(w, err)
 		return
 	}
 
@@ -390,7 +511,7 @@ func HandleSend(w http.ResponseWriter, r *http.Request) {
 	reply, err := CallGemini(r.Context(), req.TopicKey, req.Message, req.History)
 	if err != nil {
 		log.Printf("send error: %v", err)
-		http.Error(w, "upstream error", http.StatusBadGateway)
+		writeGeminiError(w, err)
 		return
 	}
 

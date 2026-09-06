@@ -77,6 +77,16 @@ export type Send_message_response = {
 
 const USE_MOCK = false
 
+// Thrown when every Gemini model in rotation was unavailable (backend returns
+// HTTP 503 or an SSE "unavailable" event). Callers should show the user a
+// friendly "try again later" message rather than failing silently.
+export class Service_unavailable_error extends Error {
+  constructor() {
+    super('service_unavailable')
+    this.name = 'Service_unavailable_error'
+  }
+}
+
 export async function start_conversation(
   req: Start_conversation_request,
 ): Promise<Start_conversation_response> {
@@ -88,8 +98,12 @@ export async function start_conversation(
     }
     return { first_message_ja: msg.ja, first_message_en: msg.en }
   }
-  const { data } = await client.post<Start_conversation_response>('/api/start', req)
-  return data
+  const response = await client.post<Start_conversation_response>('/api/start', req, {
+    validateStatus: () => true,
+  })
+  if (response.status === 503) throw new Service_unavailable_error()
+  if (response.status !== 200) throw new Error(`start failed: ${response.status}`)
+  return response.data
 }
 
 export async function send_message(
@@ -100,8 +114,12 @@ export async function send_message(
     const pick = FOLLOW_UP_REPLIES[Math.floor(Math.random() * FOLLOW_UP_REPLIES.length)]
     return { reply_ja: pick.ja, reply_en: pick.en }
   }
-  const { data } = await client.post<Send_message_response>('/api/send', req)
-  return data
+  const response = await client.post<Send_message_response>('/api/send', req, {
+    validateStatus: () => true,
+  })
+  if (response.status === 503) throw new Service_unavailable_error()
+  if (response.status !== 200) throw new Error(`send failed: ${response.status}`)
+  return response.data
 }
 
 export async function send_message_stream(
@@ -125,6 +143,7 @@ export async function send_message_stream(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(req),
   })
+  if (response.status === 503) throw new Service_unavailable_error()
   if (!response.ok || !response.body) throw new Error('stream failed')
 
   const reader = response.body.getReader()
@@ -147,10 +166,13 @@ export async function send_message_stream(
           on_chunk(event.chunk)
         } else if (event.done === true) {
           on_done(event.ja as string, event.en as string)
+        } else if (event.unavailable) {
+          throw new Service_unavailable_error()
         } else if (event.error) {
           throw new Error('stream error')
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof Service_unavailable_error) throw err
         // ignore malformed lines
       }
     }

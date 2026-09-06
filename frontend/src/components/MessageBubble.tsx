@@ -20,9 +20,11 @@ export function MessageBubble({ message }: Props) {
       <p
         className={[
           'max-w-[75%] px-4 py-3 text-[15px] leading-relaxed rounded-2xl',
-          is_ai
-            ? 'bg-white border border-blue-100 text-gray-800 rounded-tl-md'
-            : 'bg-blue-600 text-white rounded-tr-md',
+          message.is_error
+            ? 'bg-amber-50 border border-amber-200 text-amber-800 rounded-tl-md'
+            : is_ai
+              ? 'bg-white border border-blue-100 text-gray-800 rounded-tl-md'
+              : 'bg-blue-600 text-white rounded-tr-md',
         ].join(' ')}
       >
         {message.content_ja}
@@ -31,7 +33,7 @@ export function MessageBubble({ message }: Props) {
         )}
       </p>
 
-      {is_ai && !message.streaming && message.content_en && (
+      {is_ai && !message.streaming && !message.is_error && message.content_en && (
         <div className="mt-1 ml-1">
           <AnimatePresence>
             {show_en && (
