@@ -2,7 +2,7 @@
   <!-- Bubble body -->
   <rect x="1" y="1" width="30" height="22" rx="6" fill="#2563EB"/>
   <!-- Tail (bottom-left) -->
-  <path d="M5 23 L3 31 L15 23 Z" fill="#2563EB"/>
+  <path d="M5 21 L3 31 L15 21 Z" fill="#2563EB"/>
   <!-- 友 kanji -->
   <text
     x="16" y="12"
