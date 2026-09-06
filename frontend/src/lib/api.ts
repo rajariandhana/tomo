@@ -87,6 +87,16 @@ export class Service_unavailable_error extends Error {
   }
 }
 
+// Thrown when the backend's turn-limit backstop rejects a message (HTTP 403).
+// The frontend already hides the input after 5 exchanges, so this only fires
+// if that client-side state is bypassed or gets out of sync.
+export class Conversation_limit_error extends Error {
+  constructor() {
+    super('conversation_limit_reached')
+    this.name = 'Conversation_limit_error'
+  }
+}
+
 export async function start_conversation(
   req: Start_conversation_request,
 ): Promise<Start_conversation_response> {
@@ -102,6 +112,7 @@ export async function start_conversation(
     validateStatus: () => true,
   })
   if (response.status === 503) throw new Service_unavailable_error()
+  if (response.status === 403) throw new Conversation_limit_error()
   if (response.status !== 200) throw new Error(`start failed: ${response.status}`)
   return response.data
 }
@@ -118,6 +129,7 @@ export async function send_message(
     validateStatus: () => true,
   })
   if (response.status === 503) throw new Service_unavailable_error()
+  if (response.status === 403) throw new Conversation_limit_error()
   if (response.status !== 200) throw new Error(`send failed: ${response.status}`)
   return response.data
 }
@@ -144,6 +156,7 @@ export async function send_message_stream(
     body: JSON.stringify(req),
   })
   if (response.status === 503) throw new Service_unavailable_error()
+  if (response.status === 403) throw new Conversation_limit_error()
   if (!response.ok || !response.body) throw new Error('stream failed')
 
   const reader = response.body.getReader()

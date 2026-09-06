@@ -33,6 +33,12 @@ export function MessageBubble({ message }: Props) {
         )}
       </p>
 
+      {message.is_error && message.content_en && (
+        <p className="mt-1.5 ml-1 text-[13px] text-amber-700/80 leading-relaxed max-w-[75%]">
+          {message.content_en}
+        </p>
+      )}
+
       {is_ai && !message.streaming && !message.is_error && message.content_en && (
         <div className="mt-1 ml-1">
           <AnimatePresence>

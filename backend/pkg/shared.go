@@ -103,6 +103,21 @@ func (r *rotator) slotCount() int {
 // with a retriable error (e.g. all under high demand).
 var errAllModelsUnavailable = errors.New("all gemini models unavailable")
 
+// maxUserTurns caps a free conversation at 5 user messages (5 user/AI
+// exchanges); the client enforces this in the UI, this is the server-side
+// backstop so it can't be bypassed by calling the API directly.
+const maxUserTurns = 5
+
+func countUserTurns(history []HistoryItem) int {
+	n := 0
+	for _, h := range history {
+		if h.Role == "user" {
+			n++
+		}
+	}
+	return n
+}
+
 // isRetriable reports whether a Gemini API error is transient and worth
 // retrying against a different model/project (high demand, rate limits, or
 // other server-side unavailability). Non-retriable errors (bad request,
@@ -177,6 +192,7 @@ Rules:
 - "en" is the English translation of your Japanese reply
 - Keep replies short (1–3 sentences) and conversational
 - Be warm, patient, and encouraging
+- Keep the conversation going: always end your reply with a natural follow-up question, especially if the user's message feels short, final, or like the topic is winding down
 - When you receive "[START]", greet the user and open the conversation with a question about the topic
 - Do not include any text outside the JSON object`, label)
 }
@@ -193,6 +209,7 @@ Rules:
 - Then write exactly "---" on its own line
 - Then write the English translation of your Japanese reply
 - Be warm, patient, and encouraging
+- Keep the conversation going: always end your reply with a natural follow-up question, especially if the user's message feels short, final, or like the topic is winding down
 - Do not include any other text or labels
 
 Example format:
@@ -334,6 +351,11 @@ func HandleSendStream(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Message) == "" {
 		http.Error(w, "message is empty", http.StatusBadRequest)
+		return
+	}
+	if countUserTurns(req.History) >= maxUserTurns {
+		w.WriteHeader(http.StatusForbidden)
+		WriteJSON(w, map[string]string{"error": "conversation_limit_reached"})
 		return
 	}
 	if GeminiRotator == nil {
@@ -508,6 +530,11 @@ func HandleSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if strings.TrimSpace(req.Message) == "" {
 		http.Error(w, "message is empty", http.StatusBadRequest)
+		return
+	}
+	if countUserTurns(req.History) >= maxUserTurns {
+		w.WriteHeader(http.StatusForbidden)
+		WriteJSON(w, map[string]string{"error": "conversation_limit_reached"})
 		return
 	}
 
