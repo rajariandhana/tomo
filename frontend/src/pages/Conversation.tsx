@@ -122,10 +122,16 @@ export function Conversation() {
       content_ja: trimmed,
       created_at: Date.now(),
     }])
-    set_is_ai_typing(true)
     set_input('')
     if (textarea_ref.current) textarea_ref.current.style.height = 'auto'
 
+    const turns = messages_ref.current.filter(m => m.role === 'user').length
+    if (turns >= MAX_USER_TURNS) {
+      go_to_ended_page()
+      return
+    }
+
+    set_is_ai_typing(true)
     is_sending_ref.current = true
 
     send_message_stream(
@@ -155,8 +161,6 @@ export function Conversation() {
             ? { ...m, content_ja: ja, content_en: en, streaming: false }
             : m
         ))
-        const turns = messages_ref.current.filter(m => m.role === 'user').length
-        if (turns >= MAX_USER_TURNS) go_to_ended_page()
       },
     ).catch((err: unknown) => {
       is_sending_ref.current = false
