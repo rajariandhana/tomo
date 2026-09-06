@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/messagebubble.tsx","./src/components/topiccard.tsx","./src/components/topicicon.tsx","./src/components/typingindicator.tsx","./src/lib/api.ts","./src/lib/topics.ts","./src/pages/conversation.tsx","./src/pages/topicselection.tsx","./src/types/index.ts"],"version":"5.9.3"}
