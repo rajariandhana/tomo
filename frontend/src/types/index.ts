@@ -12,5 +12,6 @@ export type Message = {
   content_ja: string
   content_en?: string
   streaming?: boolean
+  is_error?: boolean
   created_at: number
 }

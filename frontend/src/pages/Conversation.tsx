@@ -5,9 +5,22 @@ import { MessageBubble } from '../components/MessageBubble'
 import { TypingIndicator } from '../components/TypingIndicator'
 import { TopicIcon } from '../components/TopicIcon'
 import { get_topic } from '../lib/topics'
-import { start_conversation, send_message_stream } from '../lib/api'
+import { start_conversation, send_message_stream, Service_unavailable_error } from '../lib/api'
 import type { History_item } from '../lib/api'
 import type { Message } from '../types'
+
+const UNAVAILABLE_MESSAGE: Message = {
+  id: 'unavailable',
+  role: 'ai',
+  content_ja: '申し訳ありません、現在サーバーが混み合っています。しばらくしてからもう一度お試しください。',
+  content_en: "Sorry, Tomo is temporarily unavailable due to high demand. Please try again in a moment.",
+  is_error: true,
+  created_at: 0,
+}
+
+function make_unavailable_message(): Message {
+  return { ...UNAVAILABLE_MESSAGE, id: crypto.randomUUID(), created_at: Date.now() }
+}
 
 export function Conversation() {
   const { topic_key } = useParams<{ topic_key: string }>()
@@ -48,7 +61,13 @@ export function Conversation() {
           created_at: Date.now(),
         }])
       })
-      .catch(() => { if (!cancelled) set_is_ai_typing(false) })
+      .catch((err: unknown) => {
+        if (cancelled) return
+        set_is_ai_typing(false)
+        if (err instanceof Service_unavailable_error) {
+          set_messages([make_unavailable_message()])
+        }
+      })
     return () => { cancelled = true }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -114,9 +133,14 @@ export function Conversation() {
             : m
         ))
       },
-    ).catch(() => {
+    ).catch((err: unknown) => {
       is_sending_ref.current = false
       set_is_ai_typing(false)
+      if (err instanceof Service_unavailable_error) {
+        // Drop any partial streaming bubble — its content may be incomplete —
+        // and show a clear unavailable message instead.
+        set_messages(prev => [...prev.filter(m => m.id !== ai_id), make_unavailable_message()])
+      }
     })
   }
 
