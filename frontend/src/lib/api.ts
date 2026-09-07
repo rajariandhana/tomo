@@ -5,33 +5,6 @@ const client = axios.create({
   headers: { 'Content-Type': 'application/json' },
 })
 
-const FIRST_MESSAGES: Record<string, { ja: string; en: string }> = {
-  self_introduction: {
-    ja: 'はじめまして！私はトモです。あなたの名前は何ですか？',
-    en: "Nice to meet you! I'm Tomo. What's your name?",
-  },
-  hometown: {
-    ja: 'こんにちは！故郷について聞かせてください。どこから来ましたか？',
-    en: 'Hello! Tell me about your hometown. Where are you from?',
-  },
-  food: {
-    ja: 'こんにちは！食べ物の話をしましょう。好きな食べ物は何ですか？',
-    en: "Hello! Let's talk about food. What's your favorite food?",
-  },
-  hobbies: {
-    ja: 'こんにちは！趣味について教えてください。何が好きですか？',
-    en: 'Hello! Tell me about your hobbies. What do you enjoy?',
-  },
-  travel: {
-    ja: 'こんにちは！旅行が好きですか？どこに行きたいですか？',
-    en: 'Hello! Do you like traveling? Where would you like to go?',
-  },
-  pop_culture: {
-    ja: 'こんにちは！好きなアニメや映画はありますか？',
-    en: 'Hello! Do you have a favorite anime or movie?',
-  },
-}
-
 const FOLLOW_UP_REPLIES = [
   { ja: 'そうですか！もっと教えてください。',        en: 'Is that so! Please tell me more.' },
   { ja: 'なるほど。それはどうしてですか？',           en: 'I see. Why is that?' },
@@ -51,15 +24,6 @@ function random_delay(): Promise<void> {
 export type History_item = {
   role: 'user' | 'model'
   content: string
-}
-
-export type Start_conversation_request = {
-  topic_key: string
-}
-
-export type Start_conversation_response = {
-  first_message_ja: string
-  first_message_en: string
 }
 
 export type Send_message_request = {
@@ -97,26 +61,6 @@ export class Conversation_limit_error extends Error {
   }
 }
 
-export async function start_conversation(
-  req: Start_conversation_request,
-): Promise<Start_conversation_response> {
-  if (USE_MOCK) {
-    await random_delay()
-    const msg = FIRST_MESSAGES[req.topic_key] ?? {
-      ja: 'こんにちは！話しましょう！',
-      en: "Hello! Let's talk!",
-    }
-    return { first_message_ja: msg.ja, first_message_en: msg.en }
-  }
-  const response = await client.post<Start_conversation_response>('/api/start', req, {
-    validateStatus: () => true,
-  })
-  if (response.status === 503) throw new Service_unavailable_error()
-  if (response.status === 403) throw new Conversation_limit_error()
-  if (response.status !== 200) throw new Error(`start failed: ${response.status}`)
-  return response.data
-}
-
 export async function send_message(
   req: Send_message_request,
 ): Promise<Send_message_response> {
@@ -142,6 +86,19 @@ export async function text_to_speech(text: string): Promise<Blob> {
   if (response.status === 503) throw new Service_unavailable_error()
   if (response.status !== 200) throw new Error(`tts failed: ${response.status}`)
   return response.data as Blob
+}
+
+// Data URLs (unlike object URLs) are plain strings that stay valid across
+// route navigation and don't need manual revocation, so cached TTS audio can
+// be lifted onto a Message and reused on the conversation-ended page without
+// hitting /api/tts again.
+export function blob_to_data_url(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(blob)
+  })
 }
 
 export async function send_message_stream(

@@ -17,7 +17,7 @@ export function TomoLogo({ size = 32, color = 'var(--color-tomo-blue)', classNam
       <path d="M5 21 L3 31 L15 21 Z" fill={color} />
       <text
         x="16"
-        y="12"
+        y="13.4"
         dominantBaseline="middle"
         textAnchor="middle"
         fontFamily="system-ui, -apple-system, sans-serif"

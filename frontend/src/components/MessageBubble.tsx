@@ -1,25 +1,27 @@
 import { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import type { Message } from '../types'
-import { text_to_speech } from '../lib/api'
+import { text_to_speech, blob_to_data_url } from '../lib/api'
 
 type Props = {
   message: Message
+  // Called once TTS audio is fetched on demand, so the parent can cache the
+  // data URL on the message and avoid a repeat /api/tts call (e.g. on the
+  // conversation-ended page).
+  on_audio_cached?: (message_id: string, url: string) => void
 }
 
 type Audio_status = 'idle' | 'loading' | 'playing' | 'error'
 
-export function MessageBubble({ message }: Props) {
+export function MessageBubble({ message, on_audio_cached }: Props) {
   const is_ai = message.role === 'ai'
   const [show_en, set_show_en] = useState(false)
   const [audio_status, set_audio_status] = useState<Audio_status>('idle')
   const audio_ref = useRef<HTMLAudioElement | null>(null)
-  const audio_url_ref = useRef<string | null>(null)
 
   useEffect(() => {
     return () => {
       audio_ref.current?.pause()
-      if (audio_url_ref.current) URL.revokeObjectURL(audio_url_ref.current)
     }
   }, [])
 
@@ -42,9 +44,17 @@ export function MessageBubble({ message }: Props) {
 
     set_audio_status('loading')
     try {
-      const blob = await text_to_speech(message.content_ja)
-      const url = URL.createObjectURL(blob)
-      audio_url_ref.current = url
+      // A message with audio_url already has its audio ready — either a
+      // precomputed starter file, or on-demand TTS cached earlier via
+      // on_audio_cached — so play it directly and skip the TTS round trip.
+      // The artificial delay lets the loading spinner register before playback.
+      if (message.audio_url) await new Promise(r => setTimeout(r, 600))
+      let url = message.audio_url
+      if (!url) {
+        const blob = await text_to_speech(message.content_ja)
+        url = await blob_to_data_url(blob)
+        on_audio_cached?.(message.id, url)
+      }
       const audio = new Audio(url)
       audio.onended = () => set_audio_status('idle')
       audio.onerror = () => set_audio_status('error')

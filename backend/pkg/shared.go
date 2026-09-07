@@ -204,9 +204,9 @@ func InitGemini() {
 
 var topicLabels = map[string]string{
 	"self_introduction": "self-introduction",
-	"hometown":          "hometowns",
+	// "hometown":          "hometowns",
 	"food":              "food and cuisine",
-	"hobbies":           "hobbies and interests",
+	// "hobbies":           "hobbies and interests",
 	"travel":            "travel and places",
 	"pop_culture":       "anime, movies, and pop culture",
 }

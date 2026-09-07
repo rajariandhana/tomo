@@ -12,6 +12,9 @@
     },
     "api/send/stream/index.go": {
       "maxDuration": 30
+    },
+    "api/tts/index.go": {
+      "maxDuration": 30
     }
   }
 }
