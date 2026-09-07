@@ -6,6 +6,7 @@ import { TypingIndicator } from '../components/TypingIndicator'
 import { TopicIcon } from '../components/TopicIcon'
 import { BackButton } from '../components/BackButton'
 import { get_topic_starter } from '../lib/topics'
+import { useVisualViewportHeight } from '../hooks/useVisualViewportHeight'
 import {
   send_message_stream,
   Service_unavailable_error,
@@ -57,6 +58,7 @@ export function Conversation() {
   const scroll_ref = useRef<HTMLDivElement>(null)
   const textarea_ref = useRef<HTMLTextAreaElement>(null)
   const messages_ref = useRef<Message[]>(messages)
+  const { height: viewport_height, offset_top: viewport_offset_top } = useVisualViewportHeight()
 
   const apply_messages = (updater: (prev: Message[]) => Message[]) => {
     const next = updater(messages_ref.current)
@@ -191,7 +193,10 @@ export function Conversation() {
   if (!topic) return null // redirecting to /topics, see effect above
 
   return (
-    <div className="fixed inset-x-0 top-0 h-dvh flex justify-center bg-white">
+    <div
+      className="fixed inset-x-0 flex justify-center bg-white"
+      style={{ top: viewport_offset_top, height: viewport_height }}
+    >
       <div className="relative w-full max-w-md h-full flex flex-col bg-white">
 
         {/* Header */}
