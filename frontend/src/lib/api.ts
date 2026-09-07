@@ -134,6 +134,16 @@ export async function send_message(
   return response.data
 }
 
+export async function text_to_speech(text: string): Promise<Blob> {
+  const response = await client.post('/api/tts', { text }, {
+    responseType: 'blob',
+    validateStatus: () => true,
+  })
+  if (response.status === 503) throw new Service_unavailable_error()
+  if (response.status !== 200) throw new Error(`tts failed: ${response.status}`)
+  return response.data as Blob
+}
+
 export async function send_message_stream(
   req: Send_message_request,
   on_chunk: (partial_ja: string) => void,

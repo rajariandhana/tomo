@@ -1,7 +1,9 @@
 package pkg
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,6 +11,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,6 +51,10 @@ type SendResp struct {
 type AIReply struct {
 	JA string `json:"ja"`
 	EN string `json:"en"`
+}
+
+type TTSReq struct {
+	Text string `json:"text"`
 }
 
 // ── Gemini rotator ───────────────────────────────────────────────────────────
@@ -131,8 +139,26 @@ func isRetriable(err error) bool {
 		strings.Contains(s, "INTERNAL")
 }
 
+// ttsRotator cycles through one Gemini client per configured project. Unlike
+// GeminiRotator, TTS always targets a single dedicated TTS model, so there's
+// no need to multiply slots per chat model.
+type ttsRotator struct {
+	clients []*genai.Client
+	counter atomic.Uint64
+}
+
+func (r *ttsRotator) next() *genai.Client {
+	n := r.counter.Add(1) - 1
+	return r.clients[n%uint64(len(r.clients))]
+}
+
+func (r *ttsRotator) clientCount() int {
+	return len(r.clients)
+}
+
 var (
 	GeminiRotator *rotator
+	TTSRotator    *ttsRotator
 	rotatorOnce   sync.Once
 )
 
@@ -141,6 +167,7 @@ var (
 func InitGemini() {
 	rotatorOnce.Do(func() {
 		r := &rotator{}
+		tr := &ttsRotator{}
 		for _, key := range geminiProjectEnvKeys {
 			apiKey := os.Getenv(key)
 			if apiKey == "" {
@@ -158,6 +185,7 @@ func InitGemini() {
 			for _, model := range geminiModels {
 				r.slots = append(r.slots, clientSlot{client, model, !nonThinkingModels[model]})
 			}
+			tr.clients = append(tr.clients, client)
 		}
 		if len(r.slots) == 0 {
 			log.Println("warning: no Gemini clients initialized")
@@ -165,6 +193,10 @@ func InitGemini() {
 		}
 		GeminiRotator = r
 		log.Printf("gemini rotator ready: %d slot(s) across %d project(s)", len(r.slots), len(r.slots)/len(geminiModels))
+		if len(tr.clients) > 0 {
+			TTSRotator = tr
+			log.Printf("gemini tts rotator ready: %d project(s)", len(tr.clients))
+		}
 	})
 }
 
@@ -283,6 +315,103 @@ func CallGemini(ctx context.Context, topicKey, userText string, history []Histor
 		lastErr = err
 	}
 	return AIReply{}, fmt.Errorf("%w: %v", errAllModelsUnavailable, lastErr)
+}
+
+// ── Gemini TTS call ──────────────────────────────────────────────────────────
+
+const (
+	ttsModel     = "gemini-2.5-flash-preview-tts"
+	ttsVoiceName = "Kore"
+	maxTTSChars  = 1000
+)
+
+var ttsSampleRateRe = regexp.MustCompile(`rate=(\d+)`)
+
+func callGeminiTTSOnce(ctx context.Context, client *genai.Client, text string) ([]byte, string, error) {
+	cfg := &genai.GenerateContentConfig{
+		ResponseModalities: []string{"AUDIO"},
+		SpeechConfig: &genai.SpeechConfig{
+			VoiceConfig: &genai.VoiceConfig{
+				PrebuiltVoiceConfig: &genai.PrebuiltVoiceConfig{
+					VoiceName: ttsVoiceName,
+				},
+			},
+		},
+	}
+	// Gemini's TTS models sometimes reply with a conversational text answer
+	// instead of narrating bare short input — an explicit "read this aloud"
+	// framing keeps it reliably in narration mode.
+	prompt := "Read the following Japanese text aloud exactly as written, with no changes or commentary: " + text
+	resp, err := client.Models.GenerateContent(ctx, ttsModel, genai.Text(prompt), cfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("gemini tts: %w", err)
+	}
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+		return nil, "", fmt.Errorf("gemini tts: empty response")
+	}
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.InlineData != nil && len(part.InlineData.Data) > 0 {
+			return part.InlineData.Data, part.InlineData.MIMEType, nil
+		}
+	}
+	return nil, "", fmt.Errorf("gemini tts: no audio in response")
+}
+
+// CallGeminiTTS synthesizes speech for text, retrying across configured
+// projects on transient failures, and returns a browser-playable WAV file.
+func CallGeminiTTS(ctx context.Context, text string) ([]byte, error) {
+	if TTSRotator == nil {
+		return nil, fmt.Errorf("gemini tts client not initialized")
+	}
+
+	maxAttempts := TTSRotator.clientCount()
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		client := TTSRotator.next()
+		pcm, mimeType, err := callGeminiTTSOnce(ctx, client, text)
+		if err == nil {
+			return pcmToWAV(pcm, mimeType), nil
+		}
+		if !isRetriable(err) {
+			return nil, err
+		}
+		log.Printf("[gemini tts] attempt %d/%d failed: %v — trying next project", attempt, maxAttempts, err)
+		lastErr = err
+	}
+	return nil, fmt.Errorf("%w: %v", errAllModelsUnavailable, lastErr)
+}
+
+// pcmToWAV wraps raw 16-bit PCM audio (as returned by Gemini TTS, whose
+// mimeType looks like "audio/L16;codec=pcm;rate=24000") in a WAV container so
+// it can be played directly by an HTML <audio> element.
+func pcmToWAV(pcm []byte, mimeType string) []byte {
+	sampleRate := 24000
+	if m := ttsSampleRateRe.FindStringSubmatch(mimeType); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil {
+			sampleRate = n
+		}
+	}
+	const channels = 1
+	const bitsPerSample = 16
+	byteRate := sampleRate * channels * bitsPerSample / 8
+	blockAlign := channels * bitsPerSample / 8
+
+	buf := new(bytes.Buffer)
+	buf.WriteString("RIFF")
+	binary.Write(buf, binary.LittleEndian, uint32(36+len(pcm)))
+	buf.WriteString("WAVE")
+	buf.WriteString("fmt ")
+	binary.Write(buf, binary.LittleEndian, uint32(16))
+	binary.Write(buf, binary.LittleEndian, uint16(1))
+	binary.Write(buf, binary.LittleEndian, uint16(channels))
+	binary.Write(buf, binary.LittleEndian, uint32(sampleRate))
+	binary.Write(buf, binary.LittleEndian, uint32(byteRate))
+	binary.Write(buf, binary.LittleEndian, uint16(blockAlign))
+	binary.Write(buf, binary.LittleEndian, uint16(bitsPerSample))
+	buf.WriteString("data")
+	binary.Write(buf, binary.LittleEndian, uint32(len(pcm)))
+	buf.Write(pcm)
+	return buf.Bytes()
 }
 
 // ── Gemini streaming call ────────────────────────────────────────────────────
@@ -546,4 +675,32 @@ func HandleSend(w http.ResponseWriter, r *http.Request) {
 	}
 
 	WriteJSON(w, SendResp{ReplyJa: reply.JA, ReplyEn: reply.EN})
+}
+
+func HandleTTS(w http.ResponseWriter, r *http.Request) {
+	InitGemini()
+	var req TTSReq
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	text := strings.TrimSpace(req.Text)
+	if text == "" {
+		http.Error(w, "text is empty", http.StatusBadRequest)
+		return
+	}
+	if len(text) > maxTTSChars {
+		http.Error(w, "text too long", http.StatusBadRequest)
+		return
+	}
+
+	wav, err := CallGeminiTTS(r.Context(), text)
+	if err != nil {
+		log.Printf("tts error: %v", err)
+		writeGeminiError(w, err)
+		return
+	}
+
+	w.Header().Set("Content-Type", "audio/wav")
+	w.Write(wav)
 }

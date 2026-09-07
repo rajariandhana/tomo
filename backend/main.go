@@ -45,6 +45,14 @@ func main() {
 		pkg.SetCORS(w)
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /api/tts", func(w http.ResponseWriter, r *http.Request) {
+		pkg.SetCORS(w)
+		pkg.HandleTTS(w, r)
+	})
+	mux.HandleFunc("OPTIONS /api/tts", func(w http.ResponseWriter, r *http.Request) {
+		pkg.SetCORS(w)
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	port := os.Getenv("PORT")
 	if port == "" {
