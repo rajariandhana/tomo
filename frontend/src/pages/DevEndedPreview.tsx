@@ -10,36 +10,42 @@ const MOCK_MESSAGES: Message[] = [
     id: '1', role: 'ai', created_at: Date.now(),
     content_ja: 'こんにちは!食べ物の話をしましょう。好きな食べ物は何ですか?',
     content_en: "Hello! Let's talk about food. What's your favorite food?",
+    audio_url: '/audio/mock-1.wav',
   },
   { id: '2', role: 'user', created_at: Date.now(), content_ja: '寿司が好きです。' },
   {
     id: '3', role: 'ai', created_at: Date.now(),
     content_ja: 'いいですね!どんな寿司が好きですか?',
     content_en: 'Nice! What kind of sushi do you like?',
+    audio_url: '/audio/mock-3.wav',
   },
   { id: '4', role: 'user', created_at: Date.now(), content_ja: 'サーモンが好きです。' },
   {
     id: '5', role: 'ai', created_at: Date.now(),
     content_ja: 'サーモンは美味しいですよね!どこで食べますか?',
     content_en: 'Salmon is delicious! Where do you eat it?',
+    audio_url: '/audio/mock-5.wav',
   },
   { id: '6', role: 'user', created_at: Date.now(), content_ja: '近所の回転寿司です。' },
   {
     id: '7', role: 'ai', created_at: Date.now(),
     content_ja: '回転寿司はいいですね!よく行きますか?',
     content_en: 'Conveyor belt sushi sounds great! Do you go often?',
+    audio_url: '/audio/mock-7.wav',
   },
   { id: '8', role: 'user', created_at: Date.now(), content_ja: '週に一回くらい行きます。' },
   {
     id: '9', role: 'ai', created_at: Date.now(),
     content_ja: 'それはいいですね!他に好きな日本料理はありますか?',
     content_en: "That's nice! Any other Japanese food you like?",
+    audio_url: '/audio/mock-9.wav',
   },
   { id: '10', role: 'user', created_at: Date.now(), content_ja: 'ラーメンも大好きです。' },
   {
     id: '11', role: 'ai', created_at: Date.now(),
     content_ja: 'ラーメンもいいですね!今日は楽しい会話をありがとうございました。',
     content_en: 'Ramen is great too! Thanks for the fun conversation today.',
+    audio_url: '/audio/mock-11.wav',
   },
 ]
 

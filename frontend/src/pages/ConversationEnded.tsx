@@ -4,6 +4,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MessageBubble } from "../components/MessageBubble";
 import type { Message } from "../types";
 import { TomoLogo } from "../components/TomoLogo";
+import { Button } from "../components/Button";
+import { BottomNav } from "../components/BottomNav";
 
 type Location_state = {
   messages?: Message[];
@@ -14,15 +16,18 @@ export function ConversationEnded() {
   const [show_history, set_show_history] = useState(false);
 
   const state = location.state as Location_state | null;
-  const messages = state?.messages;
+  const [messages, set_messages] = useState<Message[] | undefined>(state?.messages);
 
   if (!messages) {
     return <Navigate to="/" replace />;
   }
 
+  const cache_audio = (id: string, url: string) =>
+    set_messages(prev => prev?.map(m => (m.id === id ? { ...m, audio_url: url } : m)));
+
   return (
     <div className="fixed inset-x-0 top-0 h-dvh flex justify-center bg-white">
-      <div className="relative w-full max-w-md h-full flex flex-col items-center justify-center bg-white px-6">
+      <div className="relative w-full max-w-md h-full flex flex-col items-center justify-center bg-white px-6 pb-16">
         <TomoLogo size={200}></TomoLogo>
         <h1 className="text-xl font-bold text-gray-800 mb-2">
           Thanks for trying out Tomo
@@ -31,19 +36,12 @@ export function ConversationEnded() {
           How was it? Upgrade to Pro to have more conversations.
         </span>
         <div className="w-full max-w-xs flex flex-col gap-3">
-					<button
-            // onClick={() => navigate("/")}
-            className="w-full py-3 rounded-full bg-blue-600 text-white font-semibold text-sm active:scale-95 transition-transform"
-          >
+          <Button variant="primary">
             Upgrade now <span className="font-normal italic">(coming soon)</span>
-          </button>
-          <button
-            onClick={() => set_show_history(true)}
-            className="w-full py-3 rounded-full border border-gray-200 text-gray-700 font-semibold text-sm active:scale-95 transition-transform"
-          >
+          </Button>
+          <Button variant="secondary" onClick={() => set_show_history(true)}>
             View conversation
-          </button>
-          
+          </Button>
         </div>
       </div>
 
@@ -80,13 +78,15 @@ export function ConversationEnded() {
               </div>
               <div className="overflow-y-auto flex flex-col gap-3 pr-1">
                 {messages.map((msg) => (
-                  <MessageBubble key={msg.id} message={msg} />
+                  <MessageBubble key={msg.id} message={msg} on_audio_cached={cache_audio} />
                 ))}
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      <BottomNav />
     </div>
   );
 }

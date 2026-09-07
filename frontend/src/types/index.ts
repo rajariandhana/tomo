@@ -14,4 +14,6 @@ export type Message = {
   streaming?: boolean
   is_error?: boolean
   created_at: number
+  /** Precomputed static audio for this exact text, if any — skips the on-demand TTS fetch. */
+  audio_url?: string
 }

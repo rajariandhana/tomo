@@ -1,18 +1,18 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router'
+import { useLocation, useNavigate } from 'react-router'
 import { AnimatePresence } from 'framer-motion'
 import { MessageBubble } from '../components/MessageBubble'
 import { TypingIndicator } from '../components/TypingIndicator'
 import { TopicIcon } from '../components/TopicIcon'
-import { get_topic } from '../lib/topics'
+import { BackButton } from '../components/BackButton'
+import { get_topic_starter } from '../lib/topics'
 import {
-  start_conversation,
   send_message_stream,
   Service_unavailable_error,
   Conversation_limit_error,
 } from '../lib/api'
 import type { History_item } from '../lib/api'
-import type { Message } from '../types'
+import type { Message, Topic } from '../types'
 
 const MAX_USER_TURNS = 5
 
@@ -29,18 +29,34 @@ function make_unavailable_message(): Message {
   return { ...UNAVAILABLE_MESSAGE, id: crypto.randomUUID(), created_at: Date.now() }
 }
 
+function make_starter_message(topic: Topic): Message {
+  const starter = get_topic_starter(topic.key)
+  return {
+    id: 'starter',
+    role: 'ai',
+    content_ja: starter.ja,
+    content_en: starter.en,
+    audio_url: starter.audio_url || undefined,
+    created_at: Date.now(),
+  }
+}
+
+type Location_state = {
+  topic?: Topic
+}
+
 export function Conversation() {
-  const { topic_key } = useParams<{ topic_key: string }>()
+  const location = useLocation()
   const navigate = useNavigate()
-  const topic = get_topic(topic_key ?? '')
+  const topic = (location.state as Location_state | null)?.topic
 
   const [messages, set_messages] = useState<Message[]>([])
   const [input, set_input] = useState('')
-  const [is_ai_typing, set_is_ai_typing] = useState(true)
+  const [is_ai_typing, set_is_ai_typing] = useState(!!topic)
 
   const scroll_ref = useRef<HTMLDivElement>(null)
   const textarea_ref = useRef<HTMLTextAreaElement>(null)
-  const messages_ref = useRef<Message[]>([])
+  const messages_ref = useRef<Message[]>(messages)
 
   const apply_messages = (updater: (prev: Message[]) => Message[]) => {
     const next = updater(messages_ref.current)
@@ -63,29 +79,18 @@ export function Conversation() {
   }
 
   useEffect(() => {
-    let cancelled = false
-    set_is_ai_typing(true)
-    start_conversation({ topic_key: topic_key ?? '' })
-      .then(data => {
-        if (cancelled) return
-        set_is_ai_typing(false)
-        apply_messages(() => [{
-          id: crypto.randomUUID(),
-          role: 'ai',
-          content_ja: data.first_message_ja,
-          content_en: data.first_message_en,
-          created_at: Date.now(),
-        }])
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        set_is_ai_typing(false)
-        if (err instanceof Service_unavailable_error) {
-          apply_messages(() => [make_unavailable_message()])
-        }
-      })
-    return () => { cancelled = true }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (!topic) navigate('/topics', { replace: true })
+  }, [topic, navigate])
+
+  useEffect(() => {
+    if (!topic) return
+    const timer = setTimeout(() => {
+      apply_messages(() => [make_starter_message(topic)])
+      set_is_ai_typing(false)
+    }, 800)
+    return () => clearTimeout(timer)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     scroll_to_bottom()
@@ -135,7 +140,7 @@ export function Conversation() {
     is_sending_ref.current = true
 
     send_message_stream(
-      { topic_key: topic_key!, message: trimmed, history },
+      { topic_key: topic!.key, message: trimmed, history },
       chunk => {
         if (first_chunk) {
           first_chunk = false
@@ -183,6 +188,8 @@ export function Conversation() {
     }
   }
 
+  if (!topic) return null // redirecting to /topics, see effect above
+
   return (
     <div className="fixed inset-x-0 top-0 h-dvh flex justify-center bg-white">
       <div className="relative w-full max-w-md h-full flex flex-col bg-white">
@@ -192,22 +199,13 @@ export function Conversation() {
           className="flex-shrink-0 flex items-center gap-3 px-4 border-b border-gray-100"
           style={{ height: '56px', paddingTop: 'env(safe-area-inset-top)' }}
         >
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center justify-center w-10 h-10 -ml-1 rounded-xl text-gray-400 hover:text-gray-600 transition-colors"
-            aria-label="Back"
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-              <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="1.8"
-                strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </button>
-          <TopicIcon topic_key={topic_key ?? ''} size={18} className="text-blue-500 shrink-0" />
+          <BackButton to="/topics" />
+          <TopicIcon topic_key={topic.key} size={18} className="text-blue-500 shrink-0" />
           <div className="flex flex-col leading-tight flex-1 min-w-0">
             <span className="text-[15px] font-semibold text-gray-800">
-              {topic?.en ?? 'Conversation'}
+              {topic.en}
             </span>
-            <span className="text-xs text-gray-400">{topic?.ja}</span>
+            <span className="text-xs text-gray-400">{topic.ja}</span>
           </div>
           <span className="text-[11px] font-semibold text-gray-300 tabular-nums shrink-0">
             {Math.min(user_turns, MAX_USER_TURNS)}/{MAX_USER_TURNS}
@@ -220,7 +218,13 @@ export function Conversation() {
           className="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-3"
         >
           {messages.map(msg => (
-            <MessageBubble key={msg.id} message={msg} />
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              on_audio_cached={(id, url) => apply_messages(prev =>
+                prev.map(m => m.id === id ? { ...m, audio_url: url } : m)
+              )}
+            />
           ))}
           <AnimatePresence>
             {is_ai_typing && <TypingIndicator key="typing" />}
