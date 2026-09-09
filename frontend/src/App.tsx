@@ -7,11 +7,17 @@ import { Pro } from './pages/Pro'
 import { Conversation } from './pages/Conversation'
 import { ConversationEnded } from './pages/ConversationEnded'
 import { DevEndedPreview } from './pages/DevEndedPreview'
+import { KanjiModes } from './pages/KanjiModes'
+import { KanjiLevels } from './pages/KanjiLevels'
+import { KanjiMatching } from './pages/KanjiMatching'
 
 const router = createBrowserRouter([
   { path: '/', element: <Home /> },
   { path: '/topics', element: <TopicSelection /> },
   { path: '/guide', element: <Guide /> },
+  { path: '/kanji', element: <KanjiModes /> },
+  { path: '/kanji/:mode/level', element: <KanjiLevels /> },
+  { path: '/kanji/matching/play/:level', element: <KanjiMatching /> },
   { path: '/pro', element: <Pro /> },
   { path: '/conversation/ended', element: <ConversationEnded /> },
   { path: '/conversation/ended-mock', element: <DevEndedPreview /> },

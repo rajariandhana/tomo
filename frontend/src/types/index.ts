@@ -17,3 +17,13 @@ export type Message = {
   /** Precomputed static audio for this exact text, if any — skips the on-demand TTS fetch. */
   audio_url?: string
 }
+
+export type Jlpt_level = 'N5' | 'N4' | 'N3' | 'N2' | 'N1'
+
+export type Kanji_mode = 'matching' | 'flashcards'
+
+/** One kanji plus the single English meaning used as its match in a round. */
+export type Kanji_card = {
+  kanji: string
+  meaning: string
+}

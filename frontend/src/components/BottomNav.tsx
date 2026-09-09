@@ -51,6 +51,14 @@ function GuideIcon() {
   );
 }
 
+function KanjiIcon() {
+  return (
+		<span className="font-semibold">
+			漢字
+		</span>
+  );
+}
+
 function ProIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -76,6 +84,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Home", icon: HomeIcon, end: true },
   { to: "/topics", label: "Topics", icon: TopicsIcon, end: false },
+  { to: "/kanji", label: "Kanji", icon: KanjiIcon, end: false },
   { to: "/guide", label: "Guide", icon: GuideIcon, end: false },
   { to: "/pro", label: "Pro", icon: ProIcon, end: false },
 ];
