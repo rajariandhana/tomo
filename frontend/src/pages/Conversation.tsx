@@ -84,12 +84,13 @@ export function Conversation() {
     if (!topic) navigate('/topics', { replace: true })
   }, [topic, navigate])
 
+	const MOCK_MESSAGE_LOAD_TIME = 1500;
   useEffect(() => {
     if (!topic) return
     const timer = setTimeout(() => {
       apply_messages(() => [make_starter_message(topic)])
       set_is_ai_typing(false)
-    }, 800)
+    }, MOCK_MESSAGE_LOAD_TIME)
     return () => clearTimeout(timer)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
