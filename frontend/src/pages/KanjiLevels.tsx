@@ -1,7 +1,7 @@
 import { Navigate, useNavigate, useParams } from 'react-router'
 import { motion } from 'framer-motion'
 import { PageLayout } from '../layouts/PageLayout'
-import { JLPT_LEVELS, KANJI_MODES } from '../lib/kanji'
+import { is_level_locked, JLPT_LEVELS, KANJI_MODES } from '../lib/kanji'
 
 export function KanjiLevels() {
   const navigate = useNavigate()
@@ -25,25 +25,52 @@ export function KanjiLevels() {
       </p>
 
       <div className="flex flex-col gap-3">
-        {JLPT_LEVELS.map((entry, i) => (
-          <motion.button
-            key={entry.level}
-            onClick={() => navigate(`/kanji/${selected_mode.key}/play/${entry.level}`)}
-            className="w-full flex items-center gap-4 p-4 bg-white border border-blue-100 rounded-2xl text-left cursor-pointer"
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05, duration: 0.22, ease: 'easeOut' }}
-            whileHover={{ scale: 1.015 }}
-            whileTap={{ scale: 0.97 }}
-            style={{ WebkitUserSelect: 'none', userSelect: 'none' }}
-          >
-            <div className="shrink-0 w-11 h-11 rounded-xl bg-blue-50 flex items-center justify-center">
-              <span className="text-sm font-bold text-tomo-blue">{entry.level}</span>
-            </div>
-            <span className="text-sm text-gray-500 leading-snug">{entry.blurb}</span>
-          </motion.button>
-        ))}
+        {JLPT_LEVELS.map((entry, i) => {
+          const locked = is_level_locked(entry.level)
+          return (
+            <motion.button
+              key={entry.level}
+              // A locked level still answers a tap - it leads to the upgrade
+              // page, which is the one thing the player can do about it.
+              onClick={() =>
+                navigate(locked ? '/pro' : `/kanji/${selected_mode.key}/play/${entry.level}`)
+              }
+              aria-label={locked ? `${entry.level} - Tomo Pro only` : undefined}
+              className="w-full flex items-center gap-4 p-4 bg-white border border-blue-100 rounded-2xl text-left cursor-pointer"
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05, duration: 0.22, ease: 'easeOut' }}
+              whileHover={{ scale: 1.015 }}
+              whileTap={{ scale: 0.97 }}
+              style={{ WebkitUserSelect: 'none', userSelect: 'none' }}
+            >
+              <div
+                className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center ${
+                  locked ? 'bg-gray-100' : 'bg-blue-50'
+                }`}
+              >
+                <span className={`text-sm font-bold ${locked ? 'text-gray-400' : 'text-tomo-blue'}`}>
+                  {entry.level}
+                </span>
+              </div>
+              <span className={`text-sm leading-snug ${locked ? 'text-gray-400' : 'text-gray-500'}`}>
+                {entry.blurb}
+              </span>
+              {locked && (
+                <span className="ml-auto shrink-0 px-2 py-0.5 rounded-full bg-orange-50 text-[10px] font-bold uppercase tracking-wider text-tomo-orange">
+                  Pro
+                </span>
+              )}
+            </motion.button>
+          )
+        })}
       </div>
+
+      {JLPT_LEVELS.some(entry => is_level_locked(entry.level)) && (
+        <p className="text-xs text-gray-400 text-center leading-relaxed mt-6">
+          N3 and above are part of Tomo Pro.
+        </p>
+      )}
     </PageLayout>
   )
 }
