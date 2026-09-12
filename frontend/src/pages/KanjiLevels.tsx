@@ -33,9 +33,9 @@ export function KanjiLevels() {
               // A locked level still answers a tap - it leads to the upgrade
               // page, which is the one thing the player can do about it.
               onClick={() =>
-                navigate(locked ? '/pro' : `/kanji/${selected_mode.key}/play/${entry.level}`)
+                navigate(locked ? '/plus' : `/kanji/${selected_mode.key}/play/${entry.level}`)
               }
-              aria-label={locked ? `${entry.level} - Tomo Pro only` : undefined}
+              aria-label={locked ? `${entry.level} - Tomo Plus only` : undefined}
               className="w-full flex items-center gap-4 p-4 bg-white border border-blue-100 rounded-2xl text-left cursor-pointer"
               initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
@@ -58,7 +58,7 @@ export function KanjiLevels() {
               </span>
               {locked && (
                 <span className="ml-auto shrink-0 px-2 py-0.5 rounded-full bg-orange-50 text-[10px] font-bold uppercase tracking-wider text-tomo-orange">
-                  Pro
+                  Plus
                 </span>
               )}
             </motion.button>
@@ -68,7 +68,7 @@ export function KanjiLevels() {
 
       {JLPT_LEVELS.some(entry => is_level_locked(entry.level)) && (
         <p className="text-xs text-gray-400 text-center leading-relaxed mt-6">
-          N3 and above are part of Tomo Pro.
+          N3 and above are part of Tomo Plus.
         </p>
       )}
     </PageLayout>

@@ -1,27 +1,6 @@
 import { NavLink } from "react-router";
 
-function HomeIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <path
-        d="M4 11.5L12 4l8 7.5"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M6 10v9a1 1 0 0 0 1 1h3v-5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5h3a1 1 0 0 0 1-1v-9"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function TopicsIcon() {
+function ChatIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       <path
@@ -35,22 +14,6 @@ function TopicsIcon() {
   );
 }
 
-function GuideIcon() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M9.5 9.3a2.5 2.5 0 1 1 3.6 2.25c-.75.36-1.1.9-1.1 1.75"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="12" cy="16.8" r="0.9" fill="currentColor" />
-    </svg>
-  );
-}
-
 function KanjiIcon() {
   return (
 		<span className="font-semibold">
@@ -59,7 +22,7 @@ function KanjiIcon() {
   );
 }
 
-function ProIcon() {
+function PlusIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       <path
@@ -82,11 +45,9 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { to: "/", label: "Home", icon: HomeIcon, end: true },
-  { to: "/topics", label: "Topics", icon: TopicsIcon, end: false },
+  { to: "/", label: "Chat", icon: ChatIcon, end: true },
   { to: "/kanji", label: "Kanji", icon: KanjiIcon, end: false },
-  { to: "/guide", label: "Guide", icon: GuideIcon, end: false },
-  { to: "/pro", label: "Pro", icon: ProIcon, end: false },
+  { to: "/plus", label: "Plus", icon: PlusIcon, end: false },
 ];
 
 export function BottomNav() {

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import { IS_PRO } from './pro'
+import { IS_PLUS } from './plus'
 import type { Jlpt_level, Kanji_card, Kanji_flashcard, Kanji_mode } from '../types'
 
 // kanjiapi.dev is a free, key-less, CORS-enabled read-only mirror of the KANJIDIC2
@@ -27,14 +27,14 @@ export const KANJI_MODES: { key: Kanji_mode; label: string; ja: string; blurb: s
 ]
 
 // Listed easiest first - the level screen renders them in this order, top to
-// bottom. The two free levels come first, so the Pro ones read as what comes
+// bottom. The two free levels come first, so the Plus ones read as what comes
 // after them rather than as holes in the list.
-export const JLPT_LEVELS: { level: Jlpt_level; endpoint: string; blurb: string; pro: boolean }[] = [
-  { level: 'N5', endpoint: 'jlpt-5', blurb: 'Beginner - the first 80 kanji', pro: false },
-  { level: 'N4', endpoint: 'jlpt-4', blurb: 'Elementary - everyday basics', pro: false },
-  { level: 'N3', endpoint: 'jlpt-3', blurb: 'Intermediate - a big jump up', pro: true },
-  { level: 'N2', endpoint: 'jlpt-2', blurb: 'Upper intermediate - news and work', pro: true },
-  { level: 'N1', endpoint: 'jlpt-1', blurb: 'Advanced - the hardest level', pro: true },
+export const JLPT_LEVELS: { level: Jlpt_level; endpoint: string; blurb: string; plus: boolean }[] = [
+  { level: 'N5', endpoint: 'jlpt-5', blurb: 'Beginner - the first 80 kanji', plus: false },
+  { level: 'N4', endpoint: 'jlpt-4', blurb: 'Elementary - everyday basics', plus: false },
+  { level: 'N3', endpoint: 'jlpt-3', blurb: 'Intermediate - a big jump up', plus: true },
+  { level: 'N2', endpoint: 'jlpt-2', blurb: 'Upper intermediate - news and work', plus: true },
+  { level: 'N1', endpoint: 'jlpt-1', blurb: 'Advanced - the hardest level', plus: true },
 ]
 
 export const ROUND_COUNT = 5
@@ -56,13 +56,13 @@ export function is_jlpt_level(value: string | undefined): value is Jlpt_level {
 }
 
 /**
- * Whether this level is behind the Pro gate for the current user. Both kanji
+ * Whether this level is behind the Plus gate for the current user. Both kanji
  * modes share the level list, so both gate on the same answer - the level
  * screen to label and divert the row, the play screens to turn away anyone
  * arriving on the URL directly.
  */
 export function is_level_locked(level: Jlpt_level): boolean {
-  return !IS_PRO && JLPT_LEVELS.some(l => l.level === level && l.pro)
+  return !IS_PLUS && JLPT_LEVELS.some(l => l.level === level && l.plus)
 }
 
 function endpoint_for(level: Jlpt_level): string {

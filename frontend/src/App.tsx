@@ -1,9 +1,9 @@
-import { createBrowserRouter, RouterProvider } from 'react-router'
+import { createBrowserRouter, RouterProvider, Navigate } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Home } from './pages/Home'
 import { TopicSelection } from './pages/TopicSelection'
 import { Guide } from './pages/Guide'
-import { Pro } from './pages/Pro'
+import { Plus } from './pages/Plus'
 import { Conversation } from './pages/Conversation'
 import { ConversationEnded } from './pages/ConversationEnded'
 import { DevEndedPreview } from './pages/DevEndedPreview'
@@ -21,7 +21,9 @@ const router = createBrowserRouter([
   { path: '/kanji/:mode/level', element: <KanjiLevels /> },
   { path: '/kanji/matching/play/:level', element: <KanjiMatching /> },
   { path: '/kanji/flashcards/play/:level', element: <KanjiFlashcards /> },
-  { path: '/pro', element: <Pro /> },
+  { path: '/plus', element: <Plus /> },
+  // Tomo Pro was renamed to Plus; keep old links working.
+  { path: '/pro', element: <Navigate to="/plus" replace /> },
   { path: '/conversation/ended', element: <ConversationEnded /> },
   { path: '/conversation/ended-mock', element: <DevEndedPreview /> },
   { path: '/conversation', element: <Conversation /> },
