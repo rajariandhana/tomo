@@ -20,7 +20,7 @@ export function KanjiFlashcards() {
   if (!is_jlpt_level(level)) return <Navigate to="/kanji" replace />
   // The level screen already diverts these, so anyone landing here typed or
   // bookmarked the URL. Send them to the upgrade page rather than a deck.
-  if (is_level_locked(level)) return <Navigate to="/pro" replace />
+  if (is_level_locked(level)) return <Navigate to="/plus" replace />
   // Keyed by level so switching levels remounts with a fresh deck.
   return <FlashcardSession key={level} level={level} />
 }

@@ -33,7 +33,7 @@ export function ConversationEnded() {
           Thanks for trying out Tomo
         </h1>
         <span className="text-sm text-gray-500 leading-relaxed text-center max-w-xs mb-12">
-          How was it? Upgrade to Pro to have more conversations.
+          How was it? Upgrade to Plus to have more conversations.
         </span>
         <div className="w-full max-w-xs flex flex-col gap-3">
           <Button variant="primary">

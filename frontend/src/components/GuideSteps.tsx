@@ -31,8 +31,8 @@ const STEPS = [
       <span>
         Each conversation runs for five of your messages, then wraps up so you
         can review it. Upgrade to{" "}
-        <NavLink to="/pro" className="text-tomo-blue font-semibold">
-          Pro
+        <NavLink to="/plus" className="text-tomo-blue font-semibold">
+          Plus
         </NavLink>{" "}
         for longer conversations.
       </span>

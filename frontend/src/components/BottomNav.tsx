@@ -22,7 +22,7 @@ function KanjiIcon() {
   );
 }
 
-function ProIcon() {
+function PlusIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       <path
@@ -47,7 +47,7 @@ type NavItem = {
 const NAV_ITEMS: NavItem[] = [
   { to: "/", label: "Chat", icon: ChatIcon, end: true },
   { to: "/kanji", label: "Kanji", icon: KanjiIcon, end: false },
-  { to: "/pro", label: "Pro", icon: ProIcon, end: false },
+  { to: "/plus", label: "Plus", icon: PlusIcon, end: false },
 ];
 
 export function BottomNav() {
