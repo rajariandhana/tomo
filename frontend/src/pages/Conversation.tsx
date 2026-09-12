@@ -203,7 +203,13 @@ export function Conversation() {
         {/* Header */}
         <header
           className="flex-shrink-0 flex items-center gap-3 px-4 border-b border-gray-100"
-          style={{ height: '56px', paddingTop: 'env(safe-area-inset-top)' }}
+          // The inset has to be added to the height, not just padded in: with
+          // border-box a bare padding-top is eaten by the fixed 56px and the
+          // title ends up under the notch / dynamic island.
+          style={{
+            height: 'calc(56px + env(safe-area-inset-top))',
+            paddingTop: 'env(safe-area-inset-top)',
+          }}
         >
           <BackButton to="/topics" />
           <TopicIcon topic_key={topic.key} size={18} className="text-blue-500 shrink-0" />
