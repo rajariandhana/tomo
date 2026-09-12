@@ -1,5 +1,6 @@
 import axios from 'axios'
-import type { Jlpt_level, Kanji_card, Kanji_mode } from '../types'
+import { IS_PRO } from './pro'
+import type { Jlpt_level, Kanji_card, Kanji_flashcard, Kanji_mode } from '../types'
 
 // kanjiapi.dev is a free, key-less, CORS-enabled read-only mirror of the KANJIDIC2
 // dictionary. Its data is static, so every query built on it is cached forever
@@ -21,17 +22,19 @@ export const KANJI_MODES: { key: Kanji_mode; label: string; ja: string; blurb: s
     label: 'Flashcards',
     ja: '単語カード',
     blurb: 'Flip through kanji one at a time and test your recall.',
-    available: false,
+    available: true,
   },
 ]
 
-// Listed easiest first - the level screen renders them in this order, top to bottom.
-export const JLPT_LEVELS: { level: Jlpt_level; endpoint: string; blurb: string }[] = [
-  { level: 'N5', endpoint: 'jlpt-5', blurb: 'Beginner - the first 80 kanji' },
-  { level: 'N4', endpoint: 'jlpt-4', blurb: 'Elementary - everyday basics' },
-  { level: 'N3', endpoint: 'jlpt-3', blurb: 'Intermediate - a big jump up' },
-  { level: 'N2', endpoint: 'jlpt-2', blurb: 'Upper intermediate - news and work' },
-  { level: 'N1', endpoint: 'jlpt-1', blurb: 'Advanced - the hardest level' },
+// Listed easiest first - the level screen renders them in this order, top to
+// bottom. The two free levels come first, so the Pro ones read as what comes
+// after them rather than as holes in the list.
+export const JLPT_LEVELS: { level: Jlpt_level; endpoint: string; blurb: string; pro: boolean }[] = [
+  { level: 'N5', endpoint: 'jlpt-5', blurb: 'Beginner - the first 80 kanji', pro: false },
+  { level: 'N4', endpoint: 'jlpt-4', blurb: 'Elementary - everyday basics', pro: false },
+  { level: 'N3', endpoint: 'jlpt-3', blurb: 'Intermediate - a big jump up', pro: true },
+  { level: 'N2', endpoint: 'jlpt-2', blurb: 'Upper intermediate - news and work', pro: true },
+  { level: 'N1', endpoint: 'jlpt-1', blurb: 'Advanced - the hardest level', pro: true },
 ]
 
 export const ROUND_COUNT = 5
@@ -42,8 +45,24 @@ export const TOTAL_PAIRS = ROUND_COUNT * PAIRS_PER_ROUND
 // a meaning already in play, so the pool is drawn wider than TOTAL_PAIRS.
 export const CANDIDATE_COUNT = 34
 
+// Flashcards run one flat deck instead of rounds. Twelve cards is a session a
+// player will finish in a sitting, and the pool is drawn a little wider again
+// because candidates without a usable meaning get dropped.
+export const DECK_SIZE = 12
+export const DECK_CANDIDATE_COUNT = 16
+
 export function is_jlpt_level(value: string | undefined): value is Jlpt_level {
   return JLPT_LEVELS.some(l => l.level === value)
+}
+
+/**
+ * Whether this level is behind the Pro gate for the current user. Both kanji
+ * modes share the level list, so both gate on the same answer - the level
+ * screen to label and divert the row, the play screens to turn away anyone
+ * arriving on the URL directly.
+ */
+export function is_level_locked(level: Jlpt_level): boolean {
+  return !IS_PRO && JLPT_LEVELS.some(l => l.level === level && l.pro)
 }
 
 function endpoint_for(level: Jlpt_level): string {
@@ -100,9 +119,13 @@ export function new_seed(): number {
   return Math.floor(Math.random() * 2 ** 31)
 }
 
-/** Draw the candidate characters a game will try to build its 25 pairs from. */
-export function pick_candidates(all_kanji: string[], seed: number): string[] {
-  return shuffle(all_kanji, make_rng(seed)).slice(0, CANDIDATE_COUNT)
+/** Draw the candidate characters a game will try to build its cards from. */
+export function pick_candidates(
+  all_kanji: string[],
+  seed: number,
+  count: number = CANDIDATE_COUNT,
+): string[] {
+  return shuffle(all_kanji, make_rng(seed)).slice(0, count)
 }
 
 // ── Round building ──────────────────────────────────────────────────────────
@@ -111,13 +134,17 @@ export function pick_candidates(all_kanji: string[], seed: number): string[] {
 // Short ones read better in a tile, so prefer the shortest that still fits.
 const MAX_MEANING_LENGTH = 16
 
-function pick_meaning(detail: Kanji_detail): string | null {
+function usable_meanings(detail: Kanji_detail): string[] {
   const usable = detail.meanings.filter(m => m.trim().length > 0)
-  if (usable.length === 0) return null
   // KANJIDIC lists affix glosses like "re-" or "-ness" first for some entries.
-  // They read as fragments in a tile, so fall past them when a real word exists.
+  // They read as fragments on their own, so fall past them when a real word exists.
   const words = usable.filter(m => !m.startsWith('-') && !m.endsWith('-'))
-  const pool = words.length > 0 ? words : usable
+  return words.length > 0 ? words : usable
+}
+
+function pick_meaning(detail: Kanji_detail): string | null {
+  const pool = usable_meanings(detail)
+  if (pool.length === 0) return null
   const short = pool.filter(m => m.length <= MAX_MEANING_LENGTH)
   return (short.length > 0 ? short : pool)[0]
 }
@@ -160,4 +187,38 @@ export function shuffle_meanings(round: Kanji_card[], seed: number, round_index:
   // the player a whole round for free. Rotate one step when it does.
   const unchanged = shuffled.every((card, i) => card.kanji === round[i].kanji)
   return unchanged ? [...shuffled.slice(1), shuffled[0]] : shuffled
+}
+
+// ── Deck building ───────────────────────────────────────────────────────────
+
+// A card back shows a short list of glosses rather than every one KANJIDIC
+// carries, which for common characters runs past a dozen.
+const MEANINGS_PER_CARD = 3
+
+/**
+ * Turn fetched kanji details into one deck of DECK_SIZE flashcards. Unlike a
+ * matching round, meanings are free to repeat across cards - only the character
+ * has to be unique. Returns null when too few usable cards survived.
+ */
+export function build_deck(details: Kanji_detail[], seed: number): Kanji_flashcard[] | null {
+  const rng = make_rng(seed ^ 0x85ebca6b)
+  const seen_kanji = new Set<string>()
+  const deck: Kanji_flashcard[] = []
+
+  for (const detail of shuffle(details, rng)) {
+    if (deck.length === DECK_SIZE) break
+    if (seen_kanji.has(detail.kanji)) continue
+    const meanings = usable_meanings(detail).slice(0, MEANINGS_PER_CARD)
+    if (meanings.length === 0) continue
+    seen_kanji.add(detail.kanji)
+    deck.push({
+      kanji: detail.kanji,
+      meanings,
+      kun_readings: detail.kun_readings,
+      on_readings: detail.on_readings,
+      stroke_count: detail.stroke_count,
+    })
+  }
+
+  return deck.length < DECK_SIZE ? null : deck
 }

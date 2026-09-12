@@ -5,6 +5,7 @@ const FEATURES = [
   'Unlimited conversations',
   'Talk instead of type',
   'Conversation feedback',
+	'Unlock harder levels'
 ]
 
 export function Pro() {

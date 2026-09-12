@@ -7,6 +7,7 @@ import { MatchTile } from '../components/MatchTile'
 import { use_kanji_rounds } from '../hooks/useKanjiRounds'
 import {
   is_jlpt_level,
+  is_level_locked,
   new_seed,
   PAIRS_PER_ROUND,
   ROUND_COUNT,
@@ -24,6 +25,9 @@ const MIN_LOADING_MS = 700
 export function KanjiMatching() {
   const { level } = useParams()
   if (!is_jlpt_level(level)) return <Navigate to="/kanji" replace />
+  // The level screen already diverts these, so anyone landing here typed or
+  // bookmarked the URL. Send them to the upgrade page rather than a game.
+  if (is_level_locked(level)) return <Navigate to="/pro" replace />
   // Keyed by level so switching levels remounts with a fresh game.
   return <MatchingGame key={level} level={level} />
 }

@@ -27,3 +27,12 @@ export type Kanji_card = {
   kanji: string
   meaning: string
 }
+
+/** One kanji with everything the flashcard back shows. */
+export type Kanji_flashcard = {
+  kanji: string
+  meanings: string[]
+  kun_readings: string[]
+  on_readings: string[]
+  stroke_count: number
+}
